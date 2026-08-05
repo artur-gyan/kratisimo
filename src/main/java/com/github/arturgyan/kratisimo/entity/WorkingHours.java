@@ -7,6 +7,7 @@ import lombok.Setter;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalTime;
 
 @Entity
 @Table(name = "working_hours")
@@ -28,8 +29,8 @@ public class WorkingHours {
     private DayOfWeek dayOfWeek;
 
     @Column(name = "start_time", nullable = false)
-    private LocalDate startTime;
+    private LocalTime startTime;
 
     @Column(name = "end_time", nullable = false)
-    private LocalDate endTime;
+    private LocalTime endTime;
 }

@@ -42,4 +42,7 @@ public class BusinessSettings {
 
     @Column(name = "setup_completed", nullable = false)
     private boolean setupCompleted = false;
+
+    @Column(name = "booking_lead_time_minutes", nullable = false)
+    private int bookingLeadTimeMinutes = 10;
 }
