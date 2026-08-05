@@ -44,7 +44,7 @@ public class AuthService {
         // Έλεγχος ΠΡΙΝ το save: το email UNIQUE constraint θα έσκαγε στη βάση,
         // αλλά ο έλεγχος εδώ δίνει καθαρό μήνυμα αντί για DB exception.
         if (userRepository.existsByEmail(request.email())) {
-            throw new IllegalArgumentException("Το email χρησιμοποιείται ήδη");
+            throw new IllegalArgumentException("Email already registered");
         }
 
         User user = new User();
@@ -74,9 +74,12 @@ public class AuthService {
                         request.email(),
                         request.password()));
 
-        // Φτάνουμε εδώ ΜΟΝΟ αν το authenticate πέτυχε.
+        // Φτάνουμε εδώ ΜΟΝΟ αν το authenticate πέτυχε. Το orElseThrow καλύπτει
+        // το οριακό race: authenticated αλλά ο χρήστης διαγράφηκε στο μεσοδιάστημα.
+        // IllegalStateException → 500 με ΚΑΤΑΝΟΗΤΟ μήνυμα (όχι το αόριστο catch-all).
         User user = userRepository.findByEmail(request.email())
-                .orElseThrow(); // δεν θα συμβεί — μόλις πέρασε authentication
+                .orElseThrow(() -> new IllegalStateException(
+                        "User authenticated but not found: " + request.email()));
 
         String token = jwtService.generateToken(user.getEmail());
         return new AuthResponse(token, user.getEmail(), user.getFullName());

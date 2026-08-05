@@ -1,7 +1,1 @@
-POST http://localhost:8080/api/auth/login
-Content-Type: application/json
-
-{
-  "email": "postman@test.gr",
-  "password": "12345678"
-}
+GET http://localhost:8080/api/availability?employeeId=3&date=2026-08-10&durationMinutes=120
