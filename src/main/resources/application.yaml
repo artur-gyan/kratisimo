@@ -9,17 +9,20 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate       # Flyway χτίζει το σχήμα· ο Hibernate ΜΟΝΟ επαληθεύει (fail-fast στο boot)
     show-sql: true
     properties:
       hibernate:
-        format_sql: true
-    open-in-view: false
+        format_sql: true       # ίδιο με πριν (D-όχι, απλώς για ευανάγνωστα logs)
+    open-in-view: false        # D22 — μην το χάσεις, ήταν στο αρχικό yaml σου
+
+  flyway:
+    enabled: true              # ρητά ON — το Flyway τρέχει τα migrations στο startup
+    baseline-on-migrate: false # καθαρή βάση, τα πάντα από V1 (Δρόμος Β)
 
 jwt:
   secret: ${JWT_SECRET}
   expiration-ms: 86400000
-
 
 server:
   port: 8080

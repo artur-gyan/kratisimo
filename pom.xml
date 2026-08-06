@@ -100,6 +100,20 @@
             <version>0.12.6</version>
             <scope>runtime</scope>
         </dependency>
+        <!-- Flyway core: το engine που τρέχει τα migrations -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+
+        <!-- PostgreSQL-specific υποστήριξη Flyway.
+             Ξεχωριστό artifact από Flyway 10+ — το core δεν φέρνει πλέον
+             τους database-specific handlers μέσα του. Χωρίς αυτό, το Flyway
+             δεν αναγνωρίζει PostgreSQL 18 και σκάει στο startup. -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
 	</dependencies>
 
 	<build>
