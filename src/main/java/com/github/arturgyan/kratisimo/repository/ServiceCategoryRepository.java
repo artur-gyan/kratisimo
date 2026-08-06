@@ -8,4 +8,8 @@ import java.util.List;
 public interface ServiceCategoryRepository extends JpaRepository<ServiceCategory, Long> {
 
     List<ServiceCategory> findByActiveTrueOrderByDisplayOrderAsc();
+
+    // Derived query (D47, ≤3 conditions). Το Spring παράγει το SQL από το όνομα.
+    // IgnoreCase → "Κουρέματα" και "κουρέματα" θεωρούνται διπλότυπα.
+    boolean existsByNameIgnoreCase(String name);
 }
