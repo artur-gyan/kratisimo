@@ -1,1 +1,30 @@
-GET http://localhost:8080/api/availability?employeeId=3&date=2026-08-10&durationMinutes=120
+### Login (παίρνει token)
+POST http://localhost:8080/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "test2@test.gr",
+  "password": "ΤΟ_PASSWORD_ΤΟΥ"
+}
+
+### (Εναλλακτικά) Register νέο customer
+POST http://localhost:8080/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "customer@test.gr",
+  "password": "test1234",
+  "fullName": "Test Customer",
+  "phone": "6900000000"
+}
+
+### Book appointment (χρειάζεται token)
+POST http://localhost:8080/api/appointments
+Content-Type: application/json
+Authorization: Bearer ΒΑΛΕ_ΤΟ_TOKEN_ΕΔΩ
+
+{
+  "serviceIds": [1],
+  "employeeId": 3,
+  "startsAt": "2026-08-10T06:00:00Z"
+}

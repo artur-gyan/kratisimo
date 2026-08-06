@@ -1,5 +1,6 @@
 package com.github.arturgyan.kratisimo.exception;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -96,5 +97,35 @@ public class GlobalExceptionHandler {
                 request.getRequestURI()
         );
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
+    }
+
+    // ── 409: slot πιάστηκε (Java check, στάδιο 5) ──
+    @ExceptionHandler(SlotUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleSlotUnavailable(
+            SlotUnavailableException ex, HttpServletRequest request) {
+
+        ErrorResponse body = ErrorResponse.of(
+                HttpStatus.CONFLICT.value(),          // 409
+                HttpStatus.CONFLICT.getReasonPhrase(), // "Conflict"
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    // ── 409: EXCLUDE constraint της βάσης (στάδιο 7, race που ξέφυγε) ──
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrity(
+            DataIntegrityViolationException ex, HttpServletRequest request) {
+
+        // ΔΕΝ δείχνουμε το ex.getMessage() — περιέχει raw SQL/constraint names (leak).
+        // Γενικό, ασφαλές μήνυμα. Το ίδιο 409 με τον Java check — ίδιο νόημα για τον client.
+        ErrorResponse body = ErrorResponse.of(
+                HttpStatus.CONFLICT.value(),
+                HttpStatus.CONFLICT.getReasonPhrase(),
+                "This time slot is no longer available",
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 }
