@@ -8,6 +8,8 @@ import com.github.arturgyan.kratisimo.exception.SlotUnavailableException;
 import com.github.arturgyan.kratisimo.repository.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.github.arturgyan.kratisimo.dto.AppointmentBookedEvent;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -25,17 +27,20 @@ public class BookingService {
     private final AppointmentRepository appointmentRepository;
     private final BusinessSettingsRepository businessSettingsRepository;
     private final UserRepository userRepository;
+    private final ApplicationEventPublisher eventPublisher;  // Spring built-in: εκπέμπει events
 
     public BookingService(ServiceOfferingRepository serviceOfferingRepository,
                           EmployeeProfileRepository employeeProfileRepository,
                           AppointmentRepository appointmentRepository,
                           BusinessSettingsRepository businessSettingsRepository,
-                          UserRepository userRepository) {
+                          UserRepository userRepository,
+                          ApplicationEventPublisher eventPublisher) {
         this.serviceOfferingRepository = serviceOfferingRepository;
         this.employeeProfileRepository = employeeProfileRepository;
         this.appointmentRepository = appointmentRepository;
         this.businessSettingsRepository = businessSettingsRepository;
         this.userRepository = userRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -176,7 +181,12 @@ public class BookingService {
 
         Appointment appointment = new Appointment();
         // customer: proxy μέσω getReferenceById — κανένα SELECT, μόνο το FK χρειάζεται.
-        appointment.setCustomer(userRepository.getReferenceById(customerId));
+        // ΑΛΛΑΓΗ: χρειαζόμαστε email + fullName του customer για το confirmation email.
+        // Άρα getReferenceById (μόνο FK) → findById (πραγματικά πεδία). Ίδια λογική D97.
+        User customer = userRepository.findById(customerId)
+                .orElseThrow(() -> new IllegalStateException("Customer not found"));
+        appointment.setCustomer(customer);
+
         appointment.setEmployee(employee); // ήδη φορτωμένος (στάδιο 2γ)
         appointment.setStartsAt(startsAt);
         appointment.setEndsAt(endsAt);
@@ -208,6 +218,20 @@ public class BookingService {
         List<String> serviceNames = services.stream()
                 .map(ServiceOffering::getName)
                 .toList();
+
+        // ── ΣΤΑΔΙΟ 9: Publish event για το confirmation email ──
+        // Χτίζουμε immutable snapshot ΜΕΣΑ στο transaction (session ανοιχτό, lazy proxies OK).
+        // Ο listener (@TransactionalEventListener AFTER_COMMIT) θα τρέξει ΜΟΝΟ αν το commit πετύχει,
+        // σε ξεχωριστό @Async thread. Αν σκάσει το EXCLUDE (στάδιο 7) → rollback → event πετιέται.
+        AppointmentBookedEvent event = new AppointmentBookedEvent(
+                customer.getEmail(),      // ← τώρα διαθέσιμο (findById)
+                customer.getFullName(),
+                employeeName,             // ήδη υπολογισμένο παραπάνω
+                saved.getStartsAt(),
+                serviceNames,             // ήδη υπολογισμένο παραπάνω
+                saved.getTotalPrice()
+        );
+        eventPublisher.publishEvent(event);
 
         return new BookingResponse(
                 saved.getId(),

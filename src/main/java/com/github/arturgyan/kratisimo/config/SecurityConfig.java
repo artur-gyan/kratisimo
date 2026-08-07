@@ -3,6 +3,7 @@ package com.github.arturgyan.kratisimo.config;
 import com.github.arturgyan.kratisimo.security.JwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -29,8 +30,7 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
 
                 // 2. Stateless — ο server ΔΕΝ φτιάχνει HttpSession
-                .sessionManagement(session ->
-                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 
                 // 3. Ποιος βλέπει τι
                 .authorizeHttpRequests(auth -> auth
@@ -39,8 +39,17 @@ public class SecurityConfig {
                         .requestMatchers("/api/services/**").permitAll()
                         .requestMatchers("/api/availability/**").permitAll()
 
-                        // Admin-only
+                        // Public: reviews ανά υπάλληλο (ο πελάτης βλέπει rating ΠΡΙΝ επιλέξει).
+                        // ⚠️ Πιο ΕΙΔΙΚΟΣ κανόνας — μπαίνει ΠΡΙΝ από τυχόν μελλοντικό /api/employees/**.
+                        // HttpMethod.GET: ΜΟΝΟ ανάγνωση είναι public, τίποτα άλλο σε αυτό το path.
+                        .requestMatchers(HttpMethod.GET, "/api/employees/*/reviews").permitAll()
+
+                        // Admin-only (καλύπτει και /api/admin/reviews)
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+
+                        // Reviews (POST + /me): authenticated. Πέφτει και στο anyRequest,
+                        // αλλά το κάνω ΡΗΤΟ για σαφήνεια — ένας αναγνώστης βλέπει την πρόθεση.
+                        .requestMatchers("/api/reviews/**").authenticated()
 
                         // Οτιδήποτε άλλο → χρειάζεται έγκυρο token
                         .anyRequest().authenticated())

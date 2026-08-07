@@ -166,4 +166,34 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(body);
     }
 
+    // ── 403: ownership violation (D52) ──
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ErrorResponse> handleForbidden(
+            ForbiddenException ex, HttpServletRequest request) {
+        ErrorResponse body = new ErrorResponse(
+                Instant.now(),
+                HttpStatus.FORBIDDEN.value(),        // 403
+                "Forbidden",
+                ex.getMessage(),
+                request.getRequestURI(),
+                null
+        );
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
+    }
+
+    // ── 409: duplicate review (ίδιο pattern με SlotUnavailable, D85) ──
+    @ExceptionHandler(AlreadyReviewedException.class)
+    public ResponseEntity<ErrorResponse> handleAlreadyReviewed(
+            AlreadyReviewedException ex, HttpServletRequest request) {
+        ErrorResponse body = new ErrorResponse(
+                Instant.now(),
+                HttpStatus.CONFLICT.value(),         // 409
+                "Conflict",
+                ex.getMessage(),
+                request.getRequestURI(),
+                null
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
 }

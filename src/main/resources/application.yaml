@@ -19,7 +19,17 @@ spring:
   flyway:
     enabled: true              # ρητά ON — το Flyway τρέχει τα migrations στο startup
     baseline-on-migrate: false # καθαρή βάση, τα πάντα από V1 (Δρόμος Β)
-
+  mail:
+    host: sandbox.smtp.mailtrap.io
+    port: 2525
+    username: ${MAIL_USERNAME}      # env variable — καμία τιμή committed (D58)
+    password: ${MAIL_PASSWORD}      # env variable — ΠΟΤΕ committed
+    properties:
+      mail:
+        smtp:
+          auth: true                # ο server απαιτεί username/password
+          starttls:
+            enable: true            # κρυπτογράφηση της σύνδεσης (STARTTLS)
 jwt:
   secret: ${JWT_SECRET}
   expiration-ms: 86400000

@@ -1,30 +1,137 @@
-### Login (παίρνει token)
+### ============================================================
+### REVIEWS TEST FLOW — Chat 08
+### Δεδομένα: appt #1-4 → vasilis (id 8), appt #5 → katerina (id 11)
+### Τρέξε με σειρά. Το login αποθηκεύει το token αυτόματα.
+### ============================================================
+
+### 1. LOGIN ως vasilis (owner των appt #1-4)
+# @name loginVasilis
 POST http://localhost:8080/api/auth/login
 Content-Type: application/json
 
 {
-  "email": "test2@test.gr",
-  "password": "ΤΟ_PASSWORD_ΤΟΥ"
+  "email": "vasilis@example.com",
+  "password": "customer123"
 }
 
-### (Εναλλακτικά) Register νέο customer
-POST http://localhost:8080/api/auth/register
+> {%
+    // ⚠️ Προσάρμοσε "token" στο πεδίο του AuthResponse σου (token ή accessToken)
+    client.global.set("vasilisToken", response.body.token);
+%}
+
+### ============================================================
+### 2. POST review σε ΔΙΚΟ ΤΟΥ COMPLETED ραντεβού (#1) → 201 Created
+POST http://localhost:8080/api/reviews
+Content-Type: application/json
+Authorization: Bearer {{vasilisToken}}
+
+{
+  "appointmentId": 1,
+  "rating": 5,
+  "comment": "Excellent service, very professional!"
+}
+
+### ============================================================
+### 3. POST ΞΑΝΑ το ίδιο (#1) → 409 Conflict "already reviewed"
+POST http://localhost:8080/api/reviews
+Content-Type: application/json
+Authorization: Bearer {{vasilisToken}}
+
+{
+  "appointmentId": 1,
+  "rating": 3,
+  "comment": "Trying to review twice"
+}
+
+### ============================================================
+### 4. POST σε ΞΕΝΟ ραντεβού (#5, της katerina) → 403 Forbidden (OWNERSHIP, D52)
+POST http://localhost:8080/api/reviews
+Content-Type: application/json
+Authorization: Bearer {{vasilisToken}}
+
+{
+  "appointmentId": 5,
+  "rating": 5,
+  "comment": "This is not my appointment"
+}
+
+### ============================================================
+### 5. POST με invalid rating (0) → 400 Bad Request (@Min validation)
+POST http://localhost:8080/api/reviews
+Content-Type: application/json
+Authorization: Bearer {{vasilisToken}}
+
+{
+  "appointmentId": 2,
+  "rating": 0,
+  "comment": "Invalid rating"
+}
+
+### ============================================================
+### 6. POST με rating εκτός ορίου (6) → 400 Bad Request (@Max validation)
+POST http://localhost:8080/api/reviews
+Content-Type: application/json
+Authorization: Bearer {{vasilisToken}}
+
+{
+  "appointmentId": 2,
+  "rating": 6
+}
+
+### ============================================================
+### 7. POST valid #2 (μόνο rating, χωρίς comment) → 201 (comment nullable)
+POST http://localhost:8080/api/reviews
+Content-Type: application/json
+Authorization: Bearer {{vasilisToken}}
+
+{
+  "appointmentId": 2,
+  "rating": 4
+}
+
+### ============================================================
+### 8. GET τα δικά μου reviews → 200, βλέπω #1 και #2
+GET http://localhost:8080/api/reviews/me
+Authorization: Bearer {{vasilisToken}}
+
+### ============================================================
+### 9. GET reviews ανά υπάλληλο — ΧΩΡΙΣ token (PUBLIC) → 200 + average
+### ⚠️ Άλλαξε το {employeeId} — δες σημείωση κάτω για το σωστό id
+GET http://localhost:8080/api/employees/1/reviews
+
+### ============================================================
+### 10. GET admin reviews με CUSTOMER token → 403 (δεν είναι admin)
+GET http://localhost:8080/api/admin/reviews
+Authorization: Bearer {{vasilisToken}}
+
+### ============================================================
+### 11. LOGIN ως admin
+# @name loginAdmin
+POST http://localhost:8080/api/auth/login
 Content-Type: application/json
 
 {
-  "email": "customer@test.gr",
-  "password": "test1234",
-  "fullName": "Test Customer",
-  "phone": "6900000000"
+  "email": "admin@kratisimo.com",
+  "password": "admin123"
 }
 
-### Book appointment (χρειάζεται token)
-POST http://localhost:8080/api/appointments
-Content-Type: application/json
-Authorization: Bearer ΒΑΛΕ_ΤΟ_TOKEN_ΕΔΩ
+> {%
+    client.global.set("adminToken", response.body.token);
+%}
 
-{
-  "serviceIds": [1],
-  "employeeId": 3,
-  "startsAt": "2026-08-10T06:00:00Z"
-}
+### ============================================================
+### 12. GET admin reviews με ADMIN token → 200, ΜΕ customerName
+GET http://localhost:8080/api/admin/reviews
+Authorization: Bearer {{adminToken}}
+
+### ============================================================
+### 13. POST σε CONFIRMED (μελλοντικό) ραντεβού → 400 "only completed"
+### ⚠️ Χρειάζεσαι id ενός CONFIRMED ραντεβού του vasilis — δες SQL κάτω
+# POST http://localhost:8080/api/reviews
+# Content-Type: application/json
+# Authorization: Bearer {{vasilisToken}}
+#
+# {
+#   "appointmentId": <CONFIRMED_ID>,
+#   "rating": 5
+# }
