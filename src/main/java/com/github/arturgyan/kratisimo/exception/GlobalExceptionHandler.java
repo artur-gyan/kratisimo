@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -143,6 +145,23 @@ public class GlobalExceptionHandler {
                 "Malformed request body or invalid field value",
                 request.getRequestURI(),
                 null                       // δεν είναι field-addressable — γενικό μήνυμα
+        );
+        return ResponseEntity.badRequest().body(body);
+    }
+
+    // Λάθος τύπος σε @RequestParam/@PathVariable (π.χ. "xyz" για LocalDate, "abc" για Long)
+// → client error, όχι server error
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(
+            MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
+
+        ErrorResponse body = new ErrorResponse(
+                Instant.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                "Bad Request",
+                "Invalid value for parameter '" + ex.getName() + "'",
+                request.getRequestURI(),
+                null
         );
         return ResponseEntity.badRequest().body(body);
     }
