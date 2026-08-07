@@ -4,6 +4,7 @@ import com.github.arturgyan.kratisimo.entity.ServiceOffering;
 import com.github.arturgyan.kratisimo.enums.TargetAudience;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -22,4 +23,6 @@ public interface ServiceOfferingRepository extends JpaRepository<ServiceOffering
 
     // Φιλτράρισμα κατά κοινό. In (όχι =) γιατί "ανδρικές" = MEN + UNISEX (D13).
     List<ServiceOffering> findByTargetAudienceInAndActiveTrueOrderByNameAsc(List<TargetAudience> audiences);
+
+    List<ServiceOffering> findAllByOrderByNameAsc();
 }

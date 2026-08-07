@@ -3,6 +3,7 @@ package com.github.arturgyan.kratisimo.exception;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -126,6 +127,24 @@ public class GlobalExceptionHandler {
                 "This time slot is no longer available",
                 request.getRequestURI()
         );
+
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
+
+    // Malformed JSON ή μη-έγκυρη τιμή (π.χ. λάθος enum) → client error, όχι server error
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleUnreadable(
+            HttpMessageNotReadableException ex, HttpServletRequest request) {
+
+        ErrorResponse body = new ErrorResponse(
+                Instant.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                "Bad Request",
+                "Malformed request body or invalid field value",
+                request.getRequestURI(),
+                null                       // δεν είναι field-addressable — γενικό μήνυμα
+        );
+        return ResponseEntity.badRequest().body(body);
+    }
+
 }
