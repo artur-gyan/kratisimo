@@ -45,4 +45,6 @@ public class BusinessSettings {
 
     @Column(name = "booking_lead_time_minutes", nullable = false)
     private int bookingLeadTimeMinutes = 10;
+
+
 }
