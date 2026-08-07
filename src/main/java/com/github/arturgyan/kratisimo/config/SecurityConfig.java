@@ -34,8 +34,11 @@ public class SecurityConfig {
 
                 // 3. Ποιος βλέπει τι
                 .authorizeHttpRequests(auth -> auth
-                        // Public: login/register + ό,τι βλέπει ο ανώνυμος
-                        .requestMatchers("/api/auth/**").permitAll()
+                        // Public: ΜΟΝΟ login/register (whitelist, ΟΧΙ /** wildcard —
+                        // αλλιώς κάθε νέο /api/auth/* endpoint γίνεται σιωπηλά public, π.χ. το /me)
+                        .requestMatchers("/api/auth/login", "/api/auth/register").permitAll()
+
+                        // Public: ό,τι βλέπει ο ανώνυμος πριν συνδεθεί
                         .requestMatchers("/api/services/**").permitAll()
                         .requestMatchers("/api/availability/**").permitAll()
 
@@ -51,7 +54,7 @@ public class SecurityConfig {
                         // αλλά το κάνω ΡΗΤΟ για σαφήνεια — ένας αναγνώστης βλέπει την πρόθεση.
                         .requestMatchers("/api/reviews/**").authenticated()
 
-                        // Οτιδήποτε άλλο → χρειάζεται έγκυρο token
+                        // Οτιδήποτε άλλο (συμπεριλαμβανομένου του /api/auth/me) → έγκυρο token
                         .anyRequest().authenticated())
 
                 // 4. Το δικό μας filter ΠΡΙΝ το username/password filter του Spring

@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+    /* Χρώματα — design tokens (single source of truth) */
+    --color-slate: #0F172A;
+    --color-blue: #2563EB;
+    --color-blue-soft: #60A5FA;
+    --color-blue-tint: #EFF4FF;
+    --color-page: #F8FAFC;
+
+    /* Status χρώματα */
+    --color-success: #0F6E56;
+    --color-success-tint: #E1F5EE;
+    --color-danger: #A32D2D;
+    --color-danger-tint: #FCEBEB;
+}

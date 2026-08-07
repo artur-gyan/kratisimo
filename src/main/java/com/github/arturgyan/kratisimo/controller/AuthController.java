@@ -2,14 +2,14 @@ package com.github.arturgyan.kratisimo.controller;
 
 import com.github.arturgyan.kratisimo.dto.AuthResponse;
 import com.github.arturgyan.kratisimo.dto.LoginRequest;
+import com.github.arturgyan.kratisimo.dto.MeResponse;
 import com.github.arturgyan.kratisimo.dto.RegisterRequest;
+import com.github.arturgyan.kratisimo.security.CustomUserDetails;
 import com.github.arturgyan.kratisimo.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
 
 /**
  * HTTP endpoints του authentication. ΜΟΝΟ HTTP handling —
@@ -35,5 +35,11 @@ public class AuthController {
     public ResponseEntity<AuthResponse> login(
             @Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(authService.login(request));
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<MeResponse> me(
+            @AuthenticationPrincipal CustomUserDetails principal) {
+        return ResponseEntity.ok(authService.getCurrentUser(principal.getUser()));
     }
 }

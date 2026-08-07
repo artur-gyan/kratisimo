@@ -2,6 +2,7 @@ package com.github.arturgyan.kratisimo.service;
 
 import com.github.arturgyan.kratisimo.dto.AuthResponse;
 import com.github.arturgyan.kratisimo.dto.LoginRequest;
+import com.github.arturgyan.kratisimo.dto.MeResponse;
 import com.github.arturgyan.kratisimo.dto.RegisterRequest;
 import com.github.arturgyan.kratisimo.entity.User;
 import com.github.arturgyan.kratisimo.enums.Role;
@@ -83,5 +84,13 @@ public class AuthService {
 
         String token = jwtService.generateToken(user.getEmail());
         return new AuthResponse(token, user.getEmail(), user.getFullName());
+    }
+    public MeResponse getCurrentUser(User user) {
+        return new MeResponse(
+                user.getId(),
+                user.getEmail(),
+                user.getFullName(),
+                user.getRoles()
+        );
     }
 }
