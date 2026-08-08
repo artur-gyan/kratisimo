@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { authService } from '../services/authService';
+import { useAuth } from '../context/AuthContext';
 
 function LoginPage() {
     // Τοπική κατάσταση της φόρμας.
@@ -8,6 +8,10 @@ function LoginPage() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+
+    // Το login action από το context. Κάνει login + /me + γεμίζει
+    // το global user state (ώστε η Navbar να ενημερωθεί ταυτόχρονα).
+    const { login } = useAuth();
 
     // Το router μας αφήνει να αλλάξουμε σελίδα προγραμματιστικά.
     const navigate = useNavigate();
@@ -17,13 +21,11 @@ function LoginPage() {
         setLoading(true);
 
         try {
-            // 1. Login → αποθηκεύει token (μέσα στο authService).
-            await authService.login(email, password);
+            // Μία κλήση αντί για δύο: το context κάνει login → /me
+            // → setUser εσωτερικά. Επιστρέφει το me για άμεσο routing.
+            const me = await login(email, password);
 
-            // 2. Πάρε τον χρήστη με τους ρόλους του.
-            const me = await authService.getCurrentUser();
-
-            // 3. Στείλε τον στη σωστή σελίδα ανάλογα με τον ρόλο.
+            // Στείλε τον στη σωστή σελίδα ανάλογα με τον ρόλο.
             if (me.roles.includes('ADMIN')) {
                 navigate('/admin/dashboard');
             } else {
@@ -31,6 +33,7 @@ function LoginPage() {
             }
         } catch (err) {
             // Το api.js πέταξε το μήνυμα του backend (π.χ. "Λάθος στοιχεία").
+            // ΑΜΕΤΑΒΛΗΤΟ — το D114 fix ζει εδώ και δουλεύει.
             setError(err.message);
         } finally {
             setLoading(false);
