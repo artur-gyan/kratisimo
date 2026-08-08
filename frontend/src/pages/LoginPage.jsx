@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -9,31 +9,32 @@ function LoginPage() {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
-    // Το login action από το context. Κάνει login + /me + γεμίζει
-    // το global user state (ώστε η Navbar να ενημερωθεί ταυτόχρονα).
-    const { login } = useAuth();
-
-    // Το router μας αφήνει να αλλάξουμε σελίδα προγραμματιστικά.
+    // user: για να ξέρουμε αν είναι ήδη logged in.
+    // login: το action από το context (login + /me + setUser).
+    const { user, login } = useAuth();
     const navigate = useNavigate();
+
+    // Αν είσαι ΗΔΗ logged in, μη δείχνεις τη φόρμα — φύγε στην αρχική.
+    // useEffect γιατί το navigate είναι side effect (όχι κατά το render).
+    useEffect(() => {
+        if (user) {
+            navigate('/', { replace: true });
+        }
+    }, [user, navigate]);
 
     async function handleSubmit() {
         setError('');
         setLoading(true);
 
         try {
-            // Μία κλήση αντί για δύο: το context κάνει login → /me
-            // → setUser εσωτερικά. Επιστρέφει το me για άμεσο routing.
             const me = await login(email, password);
 
-            // Στείλε τον στη σωστή σελίδα ανάλογα με τον ρόλο.
             if (me.roles.includes('ADMIN')) {
                 navigate('/admin/dashboard');
             } else {
                 navigate('/');
             }
         } catch (err) {
-            // Το api.js πέταξε το μήνυμα του backend (π.χ. "Λάθος στοιχεία").
-            // ΑΜΕΤΑΒΛΗΤΟ — το D114 fix ζει εδώ και δουλεύει.
             setError(err.message);
         } finally {
             setLoading(false);
@@ -46,7 +47,6 @@ function LoginPage() {
                 <h1 className="text-2xl font-medium text-slate mb-1">Kratisimo</h1>
                 <p className="text-slate/60 mb-6">Σύνδεση στον λογαριασμό σου</p>
 
-                {/* Μήνυμα λάθους — εμφανίζεται μόνο αν υπάρχει */}
                 {error && (
                     <div className="bg-danger-tint text-danger rounded-xl px-4 py-3 mb-4 text-sm">
                         {error}

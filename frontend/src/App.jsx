@@ -5,6 +5,9 @@ import Navbar from './components/Navbar';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
+import BookingPage from './pages/BookingPage';
+import MyAppointmentsPage from './pages/MyAppointmentsPage.jsx';
+
 
 function App() {
     return (
@@ -19,6 +22,22 @@ function App() {
                         element={
                             <ProtectedRoute requiredRole="ADMIN">
                                 <DashboardPage />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/book"
+                        element={
+                            <ProtectedRoute>
+                                <BookingPage />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/appointments"
+                        element={
+                            <ProtectedRoute>
+                                <MyAppointmentsPage />
                             </ProtectedRoute>
                         }
                     />

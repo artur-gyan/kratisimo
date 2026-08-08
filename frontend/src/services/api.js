@@ -39,9 +39,14 @@ async function request(path, options = {}) {
     }
 
     // 6. Αν το backend γύρισε error (4xx/5xx), διάβασε το μήνυμα και πέτα το.
+    //    Προσαρτούμε ΚΑΙ το status στο error object — έτσι οι σελίδες μπορούν
+    //    να διακρίνουν τύπους (π.χ. 409 conflict = "το slot πιάστηκε" vs
+    //    γενικό σφάλμα). Χωρίς αυτό, κάθε error μοιάζει ίδιο.
     if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.message || 'Κάτι πήγε στραβά');
+        const body = await response.json().catch(() => ({}));
+        const error = new Error(body.message || 'Κάτι πήγε στραβά');
+        error.status = response.status;   // ← το κρίσιμο: κράτα το HTTP status
+        throw error;
     }
 
     // 7. Μερικά endpoints (π.χ. DELETE → 204) δεν έχουν body. Μην σκάσεις.
