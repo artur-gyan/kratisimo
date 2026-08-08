@@ -1,5 +1,6 @@
 package com.github.arturgyan.kratisimo.service;
 
+import com.github.arturgyan.kratisimo.dto.PublicServiceResponse;
 import com.github.arturgyan.kratisimo.dto.ServiceOfferingRequest;
 import com.github.arturgyan.kratisimo.dto.ServiceOfferingResponse;
 import com.github.arturgyan.kratisimo.entity.ServiceCategory;
@@ -57,6 +58,18 @@ public class ServiceOfferingService {
         return offeringRepository.findAllByOrderByNameAsc()
                 .stream()
                 .map(this::toResponse)
+                .toList();
+    }
+    // ---------- READ (public list — μόνο active) ----------
+    // Ξεχωριστό από το findAll(): ο admin βλέπει ΟΛΕΣ (και inactive),
+    // ο πελάτης ΜΟΝΟ active (soft-deleted = "δεν προσφέρεται πια", D20).
+    // Ίδιο toResponse helper, ίδιο readOnly transaction (lazy categoryName, D87).
+    // ---------- READ (public list — μόνο active) ----------
+    @Transactional(readOnly = true)
+    public List<PublicServiceResponse> findAllActive() {
+        return offeringRepository.findByActiveTrueOrderByNameAsc()
+                .stream()
+                .map(this::toPublicResponse)   // ← νέος mapper, ΟΧΙ ο admin toResponse
                 .toList();
     }
 
@@ -118,6 +131,22 @@ public class ServiceOfferingService {
                 o.isActive(),
                 o.getCategory().getId(),      // FK — ήδη φορτωμένο
                 o.getCategory().getName()     // lazy access, resolve μέσα στο transaction (D87)
+        );
+    }
+
+    // ---------- Public mapping helper ----------
+// Ξεχωριστός από τον admin toResponse: διαφορετικό DTO (χωρίς active).
+// Ο admin mapper μένει ως έχει — τα δύο κοινά, δύο mappers (D109).
+    private PublicServiceResponse toPublicResponse(ServiceOffering o) {
+        return new PublicServiceResponse(
+                o.getId(),
+                o.getName(),
+                o.getDescription(),
+                o.getDurationMinutes(),
+                o.getPrice(),
+                o.getTargetAudience(),
+                o.getCategory().getId(),      // FK — ήδη φορτωμένο
+                o.getCategory().getName()     // lazy, resolve μέσα στο transaction (D87)
         );
     }
 }

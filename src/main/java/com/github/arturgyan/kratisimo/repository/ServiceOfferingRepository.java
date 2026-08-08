@@ -25,4 +25,7 @@ public interface ServiceOfferingRepository extends JpaRepository<ServiceOffering
     List<ServiceOffering> findByTargetAudienceInAndActiveTrueOrderByNameAsc(List<TargetAudience> audiences);
 
     List<ServiceOffering> findAllByOrderByNameAsc();
+    // Μόνο active, αλφαβητικά. Derived query (D47: 1 condition → derived, όχι @Query).
+    // Ο πελάτης ΔΕΝ πρέπει να βλέπει soft-deleted υπηρεσίες (D20).
+
 }

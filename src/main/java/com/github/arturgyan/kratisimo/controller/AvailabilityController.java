@@ -25,8 +25,9 @@ public class AvailabilityController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam int durationMinutes) {
 
-        // Ο controller ΔΕΝ υπολογίζει τίποτα — προωθεί στον engine.
-        // Επιστρέφει List<Instant>: τα σημεία εκκίνησης διαθέσιμων slots.
-        return availabilityService.findAvailableSlots(employeeId, date, durationMinutes);
+        // durationMinutes = RAW άθροισμα από το frontend.
+        // Ο engine κάνει το ceiling μέσα (findAvailableSlotsRaw), ο client
+        // δεν χρειάζεται να ξέρει το granularity.
+        return availabilityService.findAvailableSlotsRaw(employeeId, date, durationMinutes);
     }
 }

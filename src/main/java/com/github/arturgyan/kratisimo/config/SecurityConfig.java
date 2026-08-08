@@ -47,6 +47,13 @@ public class SecurityConfig {
                         // HttpMethod.GET: ΜΟΝΟ ανάγνωση είναι public, τίποτα άλλο σε αυτό το path.
                         .requestMatchers(HttpMethod.GET, "/api/employees/*/reviews").permitAll()
 
+                        // Public: υπάλληλοι που προσφέρουν όλες τις επιλεγμένες υπηρεσίες
+                        // (βήμα 2 της κράτησης — ο ανώνυμος τους βλέπει πριν το login, D51).
+                        // ΡΗΤΟ path, ΟΧΙ /api/employees/** wildcard (D113: μελλοντικό
+                        // /api/employees/{id}/private-data δεν θα γίνει σιωπηλά public).
+                        .requestMatchers(HttpMethod.GET, "/api/employees/available").permitAll()
+
+
                         // Admin-only (καλύπτει και /api/admin/reviews)
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
 

@@ -44,7 +44,30 @@ public class AvailabilityService {
     // ═══════════════════════════════════════════════════════════════════
     //  ΔΗΜΟΣΙΟ API
     // ═══════════════════════════════════════════════════════════════════
+    /**
+     * Public entry point για το frontend: δέχεται RAW συνολική διάρκεια
+     * (άθροισμα durations υπηρεσιών), κάνει το ceiling στο granularity ΕΔΩ,
+     * και delegate-άρει στην υπάρχουσα engine μέθοδο.
+     *
+     * Γιατί εδώ κι όχι στο frontend: το granularity είναι επιχειρησιακή
+     * ρύθμιση (D15/D40) που ζει στη βάση. Ο client δεν πρέπει ούτε να ξέρει
+     * ότι υπάρχει — στέλνει "συνολικά X λεπτά", το backend ξέρει πώς να το
+     * στρογγυλοποιήσει. Ο υπολογισμός ζει εκεί που ζει η γνώση (ίδια αρχή D67).
+     *
+     * Ο engine (findAvailableSlots με effective) μένει ΑΝΕΠΑΦΟΣ (D64):
+     * η νέα μέθοδος είναι thin wrapper που κάνει ΜΟΝΟ το ceiling.
+     */
+    public List<Instant> findAvailableSlotsRaw(Long employeeId, LocalDate date,
+                                               int rawDurationMinutes) {
+        int granularity = loadSettings().getSlotGranularityMinutes();
 
+        // Ceiling στο επόμενο πολλαπλάσιο του granularity (D16).
+        // Ίδιος τύπος με τον BookingService στάδιο 3: (a + b - 1) / b * b.
+        int effectiveDuration =
+                ((rawDurationMinutes + granularity - 1) / granularity) * granularity;
+
+        return findAvailableSlots(employeeId, date, effectiveDuration);
+    }
     /**
      * Όλα τα διαθέσιμα start times ενός υπαλλήλου για μια μέρα, δεδομένης της
      * effective διάρκειας. Ενώνει τα 6 στάδια του engine.
