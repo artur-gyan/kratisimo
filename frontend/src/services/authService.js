@@ -1,4 +1,4 @@
-// Λογική authentication: login, logout, me.
+// Λογική authentication: login, register, logout, me.
 // Χτίζει πάνω στο api.js — δεν ξαναγράφει fetch/token/errors.
 
 import { api } from './api';
@@ -11,6 +11,19 @@ export const authService = {
 
         // Το backend γυρίζει { token, email, fullName } (AuthResponse).
         // Αποθηκεύουμε ΜΟΝΟ το token — τους ρόλους τους παίρνουμε από το /me.
+        localStorage.setItem('token', response.token);
+
+        return response;
+    },
+
+    // Εγγραφή νέου χρήστη. Το backend γυρίζει AuthResponse (ίδιο με login)
+    // → auto-login: αποθηκεύουμε το token αμέσως, ίδια λογική με το login().
+    async register(data) {
+        // data = { email, password, fullName, phone } (RegisterRequest).
+        const response = await api.post('/auth/register', data);
+
+        // Ίδιο AuthResponse με το login → αποθήκευσε το token.
+        // Τους ρόλους τους παίρνει το /me (D112), όχι από εδώ.
         localStorage.setItem('token', response.token);
 
         return response;

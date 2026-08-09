@@ -6,6 +6,7 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import BookingPage from './pages/BookingPage';
+import RegisterPage from './pages/RegisterPage';
 import MyAppointmentsPage from './pages/MyAppointmentsPage.jsx';
 
 
@@ -41,6 +42,7 @@ function App() {
                             </ProtectedRoute>
                         }
                     />
+                    <Route path="/register" element={<RegisterPage />} />
                 </Routes>
             </BrowserRouter>
         </AuthProvider>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 function LoginPage() {
@@ -79,6 +79,13 @@ function LoginPage() {
                 >
                     {loading ? 'Σύνδεση...' : 'Σύνδεση'}
                 </button>
+
+                <p className="text-sm text-slate/60 text-center mt-5">
+                    Δεν έχεις λογαριασμό;{' '}
+                    <Link to="/register" className="text-blue font-medium hover:underline">
+                        Εγγραφή
+                    </Link>
+                </p>
             </div>
         </div>
     );

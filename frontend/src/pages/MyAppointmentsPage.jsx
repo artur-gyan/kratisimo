@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { Calendar, Clock, User } from 'lucide-react';
+import { Calendar, Clock, User, Star, X } from 'lucide-react';
 
 export default function MyAppointmentsPage() {
     const [appointments, setAppointments] = useState([]);
@@ -9,6 +9,11 @@ export default function MyAppointmentsPage() {
 
     // Ποιο ραντεβού ακυρώνεται τώρα (id) — για disable/spinner στο κουμπί.
     const [cancellingId, setCancellingId] = useState(null);
+
+    // Ποιο ραντεβού αξιολογείται τώρα (ολόκληρο το object, ή null = κλειστό modal).
+    // Ένα modal στο page level — όχι N modals μέσα στις κάρτες. Η κάρτα στέλνει
+    // σήμα προς τα πάνω (onReview), το page ορχηστρώνει.
+    const [reviewingAppt, setReviewingAppt] = useState(null);
 
     // Φόρτωση στο mount.
     useEffect(() => {
@@ -44,6 +49,16 @@ export default function MyAppointmentsPage() {
         } finally {
             setCancellingId(null);
         }
+    }
+
+    // Υποβολή αξιολόγησης: POST /reviews → κλείσε modal → ΞΑΝΑφόρτωσε.
+    // Μετά το ξαναφόρτωμα το backend γυρνάει canReview=false → το κουμπί
+    // «Αξιολόγησε» εξαφανίζεται μόνο του (ίδια αρχή με το cancel, D124).
+    // Το throw ξαναπετιέται ώστε το modal να δείξει το error (π.χ. 409).
+    async function handleReviewSubmit(appointmentId, rating, comment) {
+        await api.post('/reviews', { appointmentId, rating, comment });
+        setReviewingAppt(null);
+        await loadAppointments();
     }
 
     if (loading) {
@@ -105,6 +120,7 @@ export default function MyAppointmentsPage() {
                                         appt={appt}
                                         cancellingId={cancellingId}
                                         onCancel={handleCancel}
+                                        onReview={setReviewingAppt}
                                     />
                                 ))}
                             </div>
@@ -124,6 +140,7 @@ export default function MyAppointmentsPage() {
                                         appt={appt}
                                         cancellingId={cancellingId}
                                         onCancel={handleCancel}
+                                        onReview={setReviewingAppt}
                                     />
                                 ))}
                             </div>
@@ -131,12 +148,21 @@ export default function MyAppointmentsPage() {
                     )}
                 </div>
             )}
+
+            {/* Modal: renders μόνο όταν reviewingAppt != null. */}
+            {reviewingAppt && (
+                <ReviewModal
+                    appt={reviewingAppt}
+                    onClose={() => setReviewingAppt(null)}
+                    onSubmit={handleReviewSubmit}
+                />
+            )}
         </div>
     );
 }
 
 // ─── Κάρτα ενός ραντεβού (κοινή για επερχόμενα & ιστορικό) ───
-function AppointmentCard({ appt, cancellingId, onCancel }) {
+function AppointmentCard({ appt, cancellingId, onCancel, onReview }) {
     return (
         <div className="bg-white border border-slate/10 rounded-2xl p-5">
             {/* Πάνω σειρά: ημερομηνία + status badge */}
@@ -168,21 +194,32 @@ function AppointmentCard({ appt, cancellingId, onCancel }) {
                 ))}
             </div>
 
-            {/* Κάτω σειρά: σύνολο + κουμπί ακύρωσης */}
+            {/* Κάτω σειρά: σύνολο + κουμπιά (ακύρωση ή αξιολόγηση) */}
             <div className="flex items-center justify-between pt-3 border-t border-slate/10">
                 <span className="text-slate font-semibold">
                     {Number(appt.totalPrice).toFixed(2)} €
                 </span>
 
-                {appt.canCancel && (
-                    <button
-                        onClick={() => onCancel(appt.id)}
-                        disabled={cancellingId === appt.id}
-                        className="text-danger text-sm font-medium border border-danger/30 rounded-lg px-4 py-2 hover:bg-danger-tint transition-colors disabled:opacity-50"
-                    >
-                        {cancellingId === appt.id ? 'Ακύρωση...' : 'Ακύρωση'}
-                    </button>
-                )}
+                <div className="flex items-center gap-2">
+                    {appt.canReview && (
+                        <button
+                            onClick={() => onReview(appt)}
+                            className="text-blue text-sm font-medium border border-blue/30 rounded-lg px-4 py-2 hover:bg-blue-tint transition-colors"
+                        >
+                            Αξιολόγησε
+                        </button>
+                    )}
+
+                    {appt.canCancel && (
+                        <button
+                            onClick={() => onCancel(appt.id)}
+                            disabled={cancellingId === appt.id}
+                            className="text-danger text-sm font-medium border border-danger/30 rounded-lg px-4 py-2 hover:bg-danger-tint transition-colors disabled:opacity-50"
+                        >
+                            {cancellingId === appt.id ? 'Ακύρωση...' : 'Ακύρωση'}
+                        </button>
+                    )}
+                </div>
             </div>
         </div>
     );
@@ -209,6 +246,128 @@ function StatusBadge({ status }) {
         <span className={`text-xs font-medium rounded-lg px-2.5 py-1 ${c.cls}`}>
             {c.label}
         </span>
+    );
+}
+
+// ─── Modal αξιολόγησης (TOP-LEVEL, στήλη 0 — ΟΧΙ φωλιασμένο) ───
+// Τοπικό state: rating (1-5), comment, loading, error. Η ταυτότητα του
+// ραντεβού έρχεται ως prop (appt). Το onSubmit ζει στο page (POST + reload).
+function ReviewModal({ appt, onClose, onSubmit }) {
+    const [rating, setRating] = useState(0);
+    const [hover, setHover] = useState(0);       // αστέρι κάτω από τον κέρσορα (preview)
+    const [comment, setComment] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState('');
+
+    async function handleSubmit() {
+        // Client-side guard: το backend ζητά rating 1-5 (@Min/@Max). Χωρίς
+        // επιλογή αστεριού δεν στέλνουμε καν request — καθαρό μήνυμα, μηδέν 400.
+        if (rating < 1) {
+            setError('Επίλεξε βαθμολογία από 1 έως 5 αστέρια.');
+            return;
+        }
+
+        setSubmitting(true);
+        setError('');
+        try {
+            // comment: αν κενό, στέλνουμε null (το backend το δέχεται nullable).
+            await onSubmit(appt.id, rating, comment.trim() || null);
+            // Επιτυχία → το page κλείνει το modal & ξαναφορτώνει. Δεν κάνουμε
+            // τίποτα άλλο εδώ (το component ξεμοντάρεται).
+        } catch (err) {
+            // 409 = ήδη αξιολογημένο (race — π.χ. δύο tabs). Δείξε το μήνυμα
+            // του backend· ο χρήστης κλείνει & το κουμπί θα λείπει στο reload.
+            setError(err.message);
+            setSubmitting(false);
+        }
+    }
+
+    return (
+        // Overlay: κλικ έξω → κλείσιμο. stopPropagation στο περιεχόμενο ώστε
+        // κλικ ΜΕΣΑ στο modal να μην το κλείνει.
+        <div
+            className="fixed inset-0 bg-slate/40 flex items-center justify-center px-4 z-50"
+            onClick={onClose}
+        >
+            <div
+                className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header: τίτλος + X */}
+                <div className="flex items-start justify-between mb-1">
+                    <h3 className="text-lg font-semibold text-slate">Αξιολόγηση ραντεβού</h3>
+                    <button
+                        onClick={onClose}
+                        className="text-slate/40 hover:text-slate transition-colors"
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+
+                {/* Υπενθύμιση ποιο ραντεβού */}
+                <p className="text-sm text-slate/60 mb-5">
+                    {appt.employeeName} · {formatDate(appt.startsAt)}
+                </p>
+
+                {/* Αστέρια (1-5). hover δείχνει preview, click κλειδώνει την τιμή. */}
+                <div className="flex items-center gap-1 mb-5">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                        <button
+                            key={n}
+                            type="button"
+                            onClick={() => setRating(n)}
+                            onMouseEnter={() => setHover(n)}
+                            onMouseLeave={() => setHover(0)}
+                            className="p-1 transition-transform hover:scale-110"
+                        >
+                            <Star
+                                size={32}
+                                // Γεμάτο αν το αστέρι είναι <= (hover ? hover : rating).
+                                className={
+                                    n <= (hover || rating)
+                                        ? 'fill-blue text-blue'
+                                        : 'text-slate/25'
+                                }
+                            />
+                        </button>
+                    ))}
+                </div>
+
+                {/* Σχόλιο (προαιρετικό) */}
+                <textarea
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    maxLength={1000}
+                    rows={4}
+                    placeholder="Πες μας την εμπειρία σου (προαιρετικό)..."
+                    className="w-full border border-slate/15 rounded-xl px-3 py-2 text-sm text-slate resize-none focus:outline-none focus:border-blue"
+                />
+
+                {/* Error inline */}
+                {error && (
+                    <div className="bg-danger-tint text-danger text-sm rounded-lg px-3 py-2 mt-3">
+                        {error}
+                    </div>
+                )}
+
+                {/* Κουμπιά */}
+                <div className="flex gap-2 mt-5">
+                    <button
+                        onClick={onClose}
+                        className="flex-1 text-slate/70 text-sm font-medium border border-slate/15 rounded-xl px-4 py-2.5 hover:bg-page transition-colors"
+                    >
+                        Άκυρο
+                    </button>
+                    <button
+                        onClick={handleSubmit}
+                        disabled={submitting}
+                        className="flex-1 bg-blue text-white text-sm font-medium rounded-xl px-4 py-2.5 hover:opacity-90 transition-opacity disabled:opacity-50"
+                    >
+                        {submitting ? 'Υποβολή...' : 'Υποβολή'}
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 }
 

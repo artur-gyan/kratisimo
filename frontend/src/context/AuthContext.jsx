@@ -70,6 +70,24 @@ export function AuthProvider({ children }) {
         return me;
     }
 
+    // register action: ΑΚΡΙΒΩΣ το ίδιο μοτίβο με το login. Το register γυρνάει
+    // AuthResponse (auto-login) → αποθηκεύεται token → /me → γέμισε το state.
+    // ΓΙΑΤΙ περνάει από εδώ κι όχι κατευθείαν authService: single source of
+    // truth (D115). Αν η σελίδα σετάριζε μόνο localStorage, η Navbar θα
+    // έδειχνε "Σύνδεση" μέχρι το επόμενο refresh (το context user θα έμενε null).
+    async function register(data) {
+        // Βήμα 1: POST /auth/register → token αποθηκεύεται στο authService.
+        await authService.register(data);
+
+        // Βήμα 2: GET /auth/me → φρέσκοι ρόλοι (νέος χρήστης = CUSTOMER).
+        const me = await authService.getCurrentUser();
+
+        // Βήμα 3: γέμισε το state → Navbar ενημερώνεται ταυτόχρονα.
+        setUser(me);
+
+        return me;
+    }
+
     // logout: stateless (D54). Σβήνουμε το token, μηδενίζουμε το state.
     // Καμία ειδοποίηση στον server — το JWT απλά "ξεχνιέται" client-side.
     function logout() {
@@ -78,7 +96,7 @@ export function AuthProvider({ children }) {
     }
 
     // Το value είναι ό,τι βλέπουν τα children μέσω useAuth().
-    const value = { user, loading, login, logout };
+    const value = { user, loading, login, register, logout };
 
     return (
         <AuthContext.Provider value={value}>
