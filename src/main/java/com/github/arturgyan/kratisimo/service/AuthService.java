@@ -12,6 +12,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import com.github.arturgyan.kratisimo.exception.EmailAlreadyExistsException;
 
 import java.util.Set;
 
@@ -45,7 +46,7 @@ public class AuthService {
         // Έλεγχος ΠΡΙΝ το save: το email UNIQUE constraint θα έσκαγε στη βάση,
         // αλλά ο έλεγχος εδώ δίνει καθαρό μήνυμα αντί για DB exception.
         if (userRepository.existsByEmail(request.email())) {
-            throw new IllegalArgumentException("Email already registered");
+            throw new EmailAlreadyExistsException("Email already registered");
         }
 
         User user = new User();

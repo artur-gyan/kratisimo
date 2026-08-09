@@ -5,19 +5,24 @@ import com.github.arturgyan.kratisimo.entity.Appointment;
 import com.github.arturgyan.kratisimo.enums.AppointmentStatus;
 import com.github.arturgyan.kratisimo.exception.ForbiddenException;
 import com.github.arturgyan.kratisimo.repository.AppointmentRepository;
+import com.github.arturgyan.kratisimo.repository.ReviewRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class MyAppointmentService {
 
     private final AppointmentRepository appointmentRepository;
+    private final ReviewRepository reviewRepository;
 
-    public MyAppointmentService(AppointmentRepository appointmentRepository) {
+    public MyAppointmentService(AppointmentRepository appointmentRepository,
+                                ReviewRepository reviewRepository) {
         this.appointmentRepository = appointmentRepository;
+        this.reviewRepository = reviewRepository;
     }
 
     /**
@@ -27,10 +32,14 @@ public class MyAppointmentService {
      */
     @Transactional(readOnly = true)
     public List<MyAppointmentResponse> findMyAppointments(Long customerId) {
+        // Ένα query φέρνει ΟΛΑ τα αξιολογημένα ids — έξω από το loop (κανένα N+1).
+        Set<Long> reviewedIds =
+                reviewRepository.findReviewedAppointmentIdsByCustomerId(customerId);
+
         return appointmentRepository
                 .findByCustomerIdOrderByStartsAtDesc(customerId)
                 .stream()
-                .map(this::toResponse)
+                .map(a -> toResponse(a, reviewedIds))
                 .toList();
     }
 
@@ -70,7 +79,7 @@ public class MyAppointmentService {
     }
 
     // ── Mapping helper ──
-    private MyAppointmentResponse toResponse(Appointment a) {
+    private MyAppointmentResponse toResponse(Appointment a, Set<Long> reviewedIds) {
         // Ονόματα υπηρεσιών από τα items (lazy → resolve μέσα στο transaction).
         List<String> serviceNames = a.getItems().stream()
                 .map(item -> item.getService().getName())
@@ -81,6 +90,12 @@ public class MyAppointmentService {
         boolean canCancel = a.getStatus() == AppointmentStatus.CONFIRMED
                 && a.getStartsAt().isAfter(Instant.now());
 
+        // canReview: COMPLETED ΚΑΙ δεν υπάρχει ήδη review γι' αυτό.
+        // Το ΙΔΙΟ κριτήριο με το ReviewService.create (COMPLETED + no duplicate).
+        // O(1) lookup στο Set — κανένα ανά-ραντεβού query.
+        boolean canReview = a.getStatus() == AppointmentStatus.COMPLETED
+                && !reviewedIds.contains(a.getId());
+
         return new MyAppointmentResponse(
                 a.getId(),
                 a.getStartsAt(),
@@ -89,7 +104,8 @@ public class MyAppointmentService {
                 serviceNames,
                 a.getTotalPrice(),
                 a.getStatus().name(),
-                canCancel
+                canCancel,
+                canReview
         );
     }
 }

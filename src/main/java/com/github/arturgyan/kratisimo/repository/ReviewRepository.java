@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public interface ReviewRepository extends JpaRepository<Review, Long> {
 
@@ -34,4 +35,10 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
 
     // ── "Όλα" (admin) ──
     List<Review> findAllByOrderByCreatedAtDesc();
+
+    // ── Για το canReview στο MyAppointments: ποια ραντεβού του customer έχουν ήδη review; ──
+    // Επιστρέφει ΜΟΝΟ τα ids (projection) — όχι ολόκληρα Review entities. Ένα query,
+    // το αποτέλεσμα μπαίνει σε Set στον service → O(1) lookup ανά ραντεβού (κανένα N+1).
+    @Query("SELECT r.appointment.id FROM Review r WHERE r.appointment.customer.id = :customerId")
+    Set<Long> findReviewedAppointmentIdsByCustomerId(@Param("customerId") Long customerId);
 }

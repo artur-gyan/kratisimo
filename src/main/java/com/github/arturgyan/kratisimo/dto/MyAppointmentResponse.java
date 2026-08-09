@@ -20,5 +20,6 @@ public record MyAppointmentResponse(
         List<String> serviceNames,
         BigDecimal totalPrice,
         String status,
-        boolean canCancel
+        boolean canCancel,
+        boolean canReview
 ) {}
