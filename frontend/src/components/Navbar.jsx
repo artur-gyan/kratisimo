@@ -57,12 +57,20 @@ export default function Navbar() {
 
                     {/* --- ADMIN --- */}
                     {user && isAdmin && (
-                        <Link
-                            to="/admin/dashboard"
-                            className="text-slate/70 text-sm font-medium px-3 py-2 rounded-lg hover:bg-page hover:text-slate transition-colors"
-                        >
-                            Dashboard
-                        </Link>
+                        <>
+                            <Link
+                                to="/admin/dashboard"
+                                className="text-slate/70 text-sm font-medium px-3 py-2 rounded-lg hover:bg-page hover:text-slate transition-colors"
+                            >
+                                Dashboard
+                            </Link>
+                            <Link
+                                to="/admin/appointments"
+                                className="text-slate/70 text-sm font-medium px-3 py-2 rounded-lg hover:bg-page hover:text-slate transition-colors"
+                            >
+                                Ραντεβού
+                            </Link>
+                        </>
                     )}
 
                     {/* --- ΚΟΙΝΑ ΓΙΑ ΣΥΝΔΕΔΕΜΕΝΟ --- */}

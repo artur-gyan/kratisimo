@@ -6,7 +6,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 public interface ReviewRepository extends JpaRepository<Review, Long> {
@@ -41,4 +40,17 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     // το αποτέλεσμα μπαίνει σε Set στον service → O(1) lookup ανά ραντεβού (κανένα N+1).
     @Query("SELECT r.appointment.id FROM Review r WHERE r.appointment.customer.id = :customerId")
     Set<Long> findReviewedAppointmentIdsByCustomerId(@Param("customerId") Long customerId);
+
+    // ── Batch: μέσος όρος + count για ΠΟΛΛΟΥΣ υπαλλήλους σε ΕΝΑ query (αποφυγή N+1) ──
+    // Το βήμα 2 της κράτησης δείχνει βαθμολογία δίπλα σε N υπαλλήλους. Χωρίς batch,
+    // θα καλούσαμε findAverageRatingByEmployeeId N φορές (N+1). Αντ' αυτού:
+    // ΕΝΑ query, GROUP BY employee → μία γραμμή ανά υπάλληλο ΠΟΥ ΕΧΕΙ reviews.
+    // Κάθε γραμμή: [Long employeeId, Double avg, Long count].
+    // Υπάλληλοι ΧΩΡΙΣ review δεν εμφανίζονται (φύση του GROUP BY) → ο service
+    // τους αφήνει με null average (D110: null, όχι 0). Ο service το κάνει Map για O(1) lookup.
+    @Query("SELECT r.appointment.employee.id, AVG(r.rating), COUNT(r) " +
+           "FROM Review r " +
+           "WHERE r.appointment.employee.id IN :employeeIds " +
+           "GROUP BY r.appointment.employee.id")
+    List<Object[]> findAverageRatingsByEmployeeIds(@Param("employeeIds") List<Long> employeeIds);
 }

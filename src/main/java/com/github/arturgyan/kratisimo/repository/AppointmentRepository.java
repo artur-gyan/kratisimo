@@ -39,4 +39,12 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
     List<Appointment> findByEmployeeInRange(@Param("employeeId") Long employeeId,
                                             @Param("from") Instant from,
                                             @Param("to") Instant to);
+
+    @Query("""
+        SELECT a FROM Appointment a
+        WHERE a.startsAt >= :from AND a.startsAt < :to
+        ORDER BY a.startsAt ASC
+        """)
+    List<Appointment> findByStartsAtRange(@Param("from") Instant from,
+                                          @Param("to") Instant to);
 }

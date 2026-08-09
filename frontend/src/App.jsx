@@ -8,6 +8,7 @@ import DashboardPage from './pages/DashboardPage';
 import BookingPage from './pages/BookingPage';
 import RegisterPage from './pages/RegisterPage';
 import MyAppointmentsPage from './pages/MyAppointmentsPage.jsx';
+import AdminAppointmentsPage from './pages/AdminAppointmentsPage';
 
 
 function App() {
@@ -43,6 +44,14 @@ function App() {
                         }
                     />
                     <Route path="/register" element={<RegisterPage />} />
+                    <Route
+                        path="/admin/appointments"
+                        element={
+                            <ProtectedRoute requiredRole="ADMIN">
+                                <AdminAppointmentsPage />
+                            </ProtectedRoute>
+                        }
+                    />
                 </Routes>
             </BrowserRouter>
         </AuthProvider>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { Check, Clock } from 'lucide-react';
+import { Check, Clock, Star, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export default function BookingPage() {
@@ -20,6 +20,12 @@ export default function BookingPage() {
     const [employees, setEmployees] = useState([]);
     const [employeesLoading, setEmployeesLoading] = useState(false);
     const [employeesError, setEmployeesError] = useState('');
+
+    // Ποιου υπαλλήλου το προφίλ βλέπουμε στο modal (id, ή null = κλειστό).
+    // Κρατάμε ΜΟΝΟ το id (όχι ολόκληρο object): το modal κάνει το δικό του
+    // fetch για τα reviews, οπότε το id αρκεί. Το state ζει στο page level
+    // (όχι μέσα στην κάρτα) → το modal είναι top-level component, ΟΧΙ φωλιασμένο.
+    const [profileEmployee, setProfileEmployee] = useState(null);
 
     // Βήμα 3: ημερομηνία (string "YYYY-MM-DD") + επιλεγμένο slot (Instant string).
     const [selectedDate, setSelectedDate] = useState('');
@@ -310,10 +316,14 @@ export default function BookingPage() {
                     {!employeesLoading && employees.length > 0 && (
                         <div className="space-y-2">
                             {employees.map((emp) => (
-                                <button
+                                // ΠΡΟΣΟΧΗ: div, ΟΧΙ button. Μέσα υπάρχει το κουμπί
+                                // «Προβολή προφίλ» — button μέσα σε button = invalid HTML.
+                                // Η επιλογή γίνεται με onClick στο div· το inner κουμπί
+                                // κάνει stopPropagation ώστε να μην επιλέγει τον υπάλληλο.
+                                <div
                                     key={emp.id}
                                     onClick={() => setSelectedEmployee(emp)}
-                                    className={`w-full text-left flex items-center gap-4 p-4 rounded-xl border transition-colors ${
+                                    className={`w-full text-left flex items-center gap-4 p-4 rounded-xl border transition-colors cursor-pointer ${
                                         selectedEmployee?.id === emp.id
                                             ? 'border-blue bg-blue-tint'
                                             : 'border-slate/10 bg-white hover:border-slate/25'
@@ -322,7 +332,25 @@ export default function BookingPage() {
                                     {/* Avatar: φωτογραφία αν υπάρχει, αλλιώς αρχικά ονόματος */}
                                     <Avatar name={emp.fullName} photoUrl={emp.photoUrl} />
 
-                                    <span className="text-slate font-medium flex-1">{emp.fullName}</span>
+                                    {/* Όνομα + inline βαθμολογία (από το batch response, D110) */}
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-slate font-medium">{emp.fullName}</p>
+                                        <RatingBadge
+                                            average={emp.averageRating}
+                                            count={emp.reviewCount}
+                                        />
+                                    </div>
+
+                                    {/* Προβολή προφίλ: stopPropagation → δεν επιλέγει τον υπάλληλο */}
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setProfileEmployee(emp);
+                                        }}
+                                        className="text-sm text-blue hover:underline flex-shrink-0"
+                                    >
+                                        Προβολή προφίλ
+                                    </button>
 
                                     {/* Ένδειξη επιλογής */}
                                     {selectedEmployee?.id === emp.id && (
@@ -330,7 +358,7 @@ export default function BookingPage() {
                                             <Check size={16} />
                                         </span>
                                     )}
-                                </button>
+                                </div>
                             ))}
                         </div>
                     )}
@@ -523,6 +551,17 @@ export default function BookingPage() {
                     )}
                 </div>
             )}
+
+            {/* ─── MODAL ΠΡΟΦΙΛ ΥΠΑΛΛΗΛΟΥ ─── */}
+            {/* Render ΜΟΝΟ όταν profileEmployee !== null. Το component είναι
+                top-level (ορίζεται κάτω, στη στήλη 0) — εδώ απλώς το καλούμε.
+                onClose μηδενίζει το state → το modal ξεμοντάρεται. */}
+            {profileEmployee && (
+                <EmployeeProfileModal
+                    employee={profileEmployee}
+                    onClose={() => setProfileEmployee(null)}
+                />
+            )}
         </div>
     );
 }
@@ -562,13 +601,16 @@ function StepIndicator({ currentStep }) {
 
 // ─── Avatar: φωτογραφία ή αρχικά ονόματος ───
 // photoUrl είναι null στα seed → placeholder με τα αρχικά (π.χ. "Μαρία Παπαδοπούλου" → "ΜΠ").
-function Avatar({ name, photoUrl }) {
+// size = Tailwind κλάσεις μεγέθους (default = μικρό, όπως στην κάρτα βήματος 2).
+// Το modal περνάει μεγαλύτερο μέγεθος χωρίς να επηρεάζεται η κάρτα.
+// textSize = μέγεθος γραμμάτων για το placeholder με τα αρχικά.
+function Avatar({ name, photoUrl, size = 'w-11 h-11', textSize = 'text-base' }) {
     if (photoUrl) {
         return (
             <img
                 src={photoUrl}
                 alt={name}
-                className="w-11 h-11 rounded-full object-cover flex-shrink-0"
+                className={`${size} rounded-full object-cover flex-shrink-0`}
             />
         );
     }
@@ -583,10 +625,155 @@ function Avatar({ name, photoUrl }) {
         .toUpperCase();
 
     return (
-        <div className="w-11 h-11 rounded-full bg-blue-tint text-blue font-semibold flex items-center justify-center flex-shrink-0">
+        <div className={`${size} ${textSize} rounded-full bg-blue-tint text-blue font-semibold flex items-center justify-center flex-shrink-0`}>
             {initials}
         </div>
     );
+}
+
+// ─── RatingBadge: inline αστεράκι + μέσος όρος + count ───
+// average είναι Double nullable από το backend (D110): null όταν 0 reviews.
+// ΔΕΝ δείχνουμε "0 ★" σε αβαθμολόγητο υπάλληλο — μηδέν κριτικές ≠ βαθμός 0
+// (το min rating είναι 1). Δείχνουμε ρητά «Χωρίς κριτικές».
+function RatingBadge({ average, count }) {
+    if (average === null || average === undefined) {
+        return <p className="text-slate/40 text-sm mt-0.5">Χωρίς κριτικές</p>;
+    }
+    return (
+        <p className="text-slate/60 text-sm flex items-center gap-1 mt-0.5">
+            <Star size={13} className="fill-blue text-blue" />
+            <span className="font-medium text-slate">{average.toFixed(1)}</span>
+            <span>({count})</span>
+        </p>
+    );
+}
+
+// ─── StarRow: γεμάτα/άδεια αστεράκια για ένα rating 1-5 (μέσα στο modal) ───
+function StarRow({ rating }) {
+    return (
+        <div className="flex items-center gap-0.5">
+            {[1, 2, 3, 4, 5].map((n) => (
+                <Star
+                    key={n}
+                    size={14}
+                    className={n <= rating ? 'fill-blue text-blue' : 'text-slate/25'}
+                />
+            ))}
+        </div>
+    );
+}
+
+// ─── EmployeeProfileModal: popup με φωτό + όνομα + reviews ───
+// Δέχεται ΟΛΟΚΛΗΡΟ το emp object (το έχουμε ήδη από το βήμα 2) → το header
+// (φωτό/όνομα/μέσος όρος) εμφανίζεται ΑΜΕΣΩΣ, χωρίς να περιμένει το fetch.
+// Τα reviews φορτώνονται LAZY: το useEffect τρέχει στο mount (το modal μοντάρεται
+// μόνο όταν το πατήσεις — άρα mount == άνοιγμα). Κλειδί το employee.id: αν
+// αλλάξει ο υπάλληλος, ξαναφορτώνει.
+function EmployeeProfileModal({ employee, onClose }) {
+    const [reviews, setReviews] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        async function loadReviews() {
+            setLoading(true);
+            setError('');
+            try {
+                // GET /api/employees/{id}/reviews → EmployeeRatingResponse
+                // { id, fullName, average, count, reviews[] }. Μας ενδιαφέρει
+                // το reviews[] (κάθε στοιχείο = ReviewResponse, public-safe D109:
+                // rating, comment, createdAt — ΧΩΡΙΣ customerName).
+                const data = await api.get(`/employees/${employee.id}/reviews`);
+                setReviews(data.reviews || []);
+            } catch (err) {
+                setError('Δεν ήταν δυνατή η φόρτωση των κριτικών.');
+            } finally {
+                setLoading(false);
+            }
+        }
+        loadReviews();
+    }, [employee.id]);
+
+    return (
+        // Overlay: click στο φόντο → κλείσιμο. Το inner div κάνει stopPropagation
+        // ώστε click ΜΕΣΑ στο modal να μην το κλείνει.
+        <div
+            className="fixed inset-0 bg-slate/40 flex items-center justify-center p-4 z-50"
+            onClick={onClose}
+        >
+            <div
+                className="bg-white rounded-2xl max-w-md w-full max-h-[85vh] flex flex-col shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header: φωτό + όνομα + μέσος όρος (από το ήδη-γνωστό object) */}
+                <div className="flex items-start gap-4 p-5 border-b border-slate/10">
+                    <Avatar name={employee.fullName} photoUrl={employee.photoUrl} size="w-16 h-16" textSize="text-xl" />
+                    <div className="flex-1 min-w-0">
+                        <h2 className="text-lg font-semibold text-slate">{employee.fullName}</h2>
+                        <RatingBadge
+                            average={employee.averageRating}
+                            count={employee.reviewCount}
+                        />
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="text-slate/40 hover:text-slate transition-colors flex-shrink-0"
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+
+                {/* Σώμα: λίστα κριτικών (scrollable) */}
+                <div className="p-5 overflow-y-auto">
+                    {loading && (
+                        <p className="text-slate/60 text-center py-6">Φόρτωση κριτικών...</p>
+                    )}
+
+                    {error && (
+                        <div className="bg-danger-tint text-danger rounded-xl px-4 py-3">
+                            {error}
+                        </div>
+                    )}
+
+                    {!loading && !error && reviews.length === 0 && (
+                        <p className="text-slate/50 text-center py-6">
+                            Δεν υπάρχουν κριτικές ακόμα.
+                        </p>
+                    )}
+
+                    {!loading && !error && reviews.length > 0 && (
+                        <div className="space-y-3">
+                            {reviews.map((review) => (
+                                <div
+                                    key={review.id}
+                                    className="bg-page rounded-xl p-4"
+                                >
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <StarRow rating={review.rating} />
+                                        <span className="text-slate/40 text-xs">
+                                            {formatReviewDate(review.createdAt)}
+                                        </span>
+                                    </div>
+                                    {review.comment && (
+                                        <p className="text-slate/80 text-sm">{review.comment}</p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Ημερομηνία κριτικής, π.χ. "11 Αυγ 2026".
+function formatReviewDate(instantString) {
+    return new Date(instantString).toLocaleDateString('el-GR', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+    });
 }
 
 // Σημερινή ημερομηνία ως "YYYY-MM-DD" (για το min του date picker).
