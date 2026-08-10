@@ -28,4 +28,6 @@ public interface ServiceOfferingRepository extends JpaRepository<ServiceOffering
     // Μόνο active, αλφαβητικά. Derived query (D47: 1 condition → derived, όχι @Query).
     // Ο πελάτης ΔΕΝ πρέπει να βλέπει soft-deleted υπηρεσίες (D20).
 
+    // Όλες οι υπηρεσίες μιας κατηγορίας (active + inactive) — για cascade soft-delete.
+    List<ServiceOffering> findByCategoryId(Long categoryId);
 }

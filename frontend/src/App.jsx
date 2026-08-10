@@ -9,6 +9,9 @@ import BookingPage from './pages/BookingPage';
 import RegisterPage from './pages/RegisterPage';
 import MyAppointmentsPage from './pages/MyAppointmentsPage.jsx';
 import AdminAppointmentsPage from './pages/AdminAppointmentsPage';
+import AdminCatalogPage from './pages/AdminCatalogPage';
+import AdminSettingsPage from './pages/AdminSettingsPage';
+import AdminEmployeesPage from './pages/AdminEmployeesPage';
 
 
 function App() {
@@ -49,6 +52,30 @@ function App() {
                         element={
                             <ProtectedRoute requiredRole="ADMIN">
                                 <AdminAppointmentsPage />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/catalog"
+                        element={
+                            <ProtectedRoute requiredRole="ADMIN">
+                                <AdminCatalogPage />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/settings"
+                        element={
+                            <ProtectedRoute requiredRole="ADMIN">
+                                <AdminSettingsPage />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/employees"
+                        element={
+                            <ProtectedRoute requiredRole="ADMIN">
+                                <AdminEmployeesPage />
                             </ProtectedRoute>
                         }
                     />

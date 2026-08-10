@@ -28,19 +28,22 @@ public class BookingService {
     private final BusinessSettingsRepository businessSettingsRepository;
     private final UserRepository userRepository;
     private final ApplicationEventPublisher eventPublisher;  // Spring built-in: εκπέμπει events
+    private final AvailabilityService availabilityService;   // reuse working-hours validation (#1)
 
     public BookingService(ServiceOfferingRepository serviceOfferingRepository,
                           EmployeeProfileRepository employeeProfileRepository,
                           AppointmentRepository appointmentRepository,
                           BusinessSettingsRepository businessSettingsRepository,
                           UserRepository userRepository,
-                          ApplicationEventPublisher eventPublisher) {
+                          ApplicationEventPublisher eventPublisher,
+                          AvailabilityService availabilityService) {
         this.serviceOfferingRepository = serviceOfferingRepository;
         this.employeeProfileRepository = employeeProfileRepository;
         this.appointmentRepository = appointmentRepository;
         this.businessSettingsRepository = businessSettingsRepository;
         this.userRepository = userRepository;
         this.eventPublisher = eventPublisher;
+        this.availabilityService = availabilityService;
     }
 
     /**
@@ -159,7 +162,11 @@ public class BookingService {
             employee = leastLoaded; // ← ο ανατεθειμένος employee, συνεχίζει το ΙΔΙΟ μονοπάτι
         }
 
-
+        // ── ΣΤΑΔΙΟ 4β: Working-hours enforcement (#1) ──
+        // Ο employee είναι πλέον οριστικός (δόθηκε ή ανατέθηκε least-loaded).
+        // Το slot ΠΡΕΠΕΙ να πέφτει μέσα σε μία βάρδια — αλλιώς 400 (D34/D67).
+        // Πριν το overlap check: αν είναι εκτός ωραρίου, δεν έχει νόημα ο overlap.
+        availabilityService.validateWithinWorkingHours(employee.getId(), startsAt, endsAt);
 
         // ── ΣΤΑΔΙΟ 5: Re-validation διαθεσιμότητας (D19) ──
 

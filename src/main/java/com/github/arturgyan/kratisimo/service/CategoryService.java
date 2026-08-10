@@ -4,6 +4,7 @@ import com.github.arturgyan.kratisimo.dto.CategoryRequest;
 import com.github.arturgyan.kratisimo.dto.CategoryResponse;
 import com.github.arturgyan.kratisimo.entity.ServiceCategory;
 import com.github.arturgyan.kratisimo.repository.ServiceCategoryRepository;
+import com.github.arturgyan.kratisimo.repository.ServiceOfferingRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,9 +14,12 @@ import java.util.List;
 public class CategoryService {
 
     private final ServiceCategoryRepository categoryRepository;
+    private final ServiceOfferingRepository offeringRepository;
 
-    public CategoryService(ServiceCategoryRepository categoryRepository) {
+    public CategoryService(ServiceCategoryRepository categoryRepository,
+                           ServiceOfferingRepository offeringRepository) {
         this.categoryRepository = categoryRepository;
+        this.offeringRepository = offeringRepository;
     }
 
     // CREATE
@@ -79,15 +83,32 @@ public class CategoryService {
         return toResponse(category);
     }
 
-    // DELETE (soft, D20)
+    // DELETE (soft, D20) — CASCADE: σβήνει και τις υπηρεσίες της κατηγορίας.
+    // Χωρίς cascade, οι υπηρεσίες θα έμεναν active με inactive parent = ασυνέπεια
+    // (D98 απαγορεύει ανάθεση σε inactive parent αλλά δεν καθάριζε τις υπάρχουσες).
     @Transactional
     public void delete(Long id) {
         ServiceCategory category = categoryRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Category not found: " + id));
-        // Soft delete: δεν σβήνουμε τη γραμμή, την κάνουμε ανενεργή.
-        // Hard delete θα έσπαγε FK (services δείχνουν σε αυτή) + έχανε ιστορικό.
+
+        // 1. Soft-delete όλες τις υπηρεσίες της κατηγορίας.
+        //    Managed entities μέσα στο @Transactional → dirty checking → UPDATE στο commit.
+        offeringRepository.findByCategoryId(id)
+                .forEach(service -> service.setActive(false));
+
+        // 2. Soft-delete την ίδια την κατηγορία.
         category.setActive(false);
-        // πάλι, dirty checking → UPDATE αυτόματα
+    }
+
+    // ACTIVATE (reactivation soft-deleted κατηγορίας)
+    // ΜΟΝΟ η κατηγορία — ΟΧΙ αυτόματο cascade στις υπηρεσίες (ασύμμετρο με το delete:
+    // "σβήσε όλα" vs "επανάφερε επιλεκτικά"). Τις υπηρεσίες τις ενεργοποιεί ξεχωριστά ο admin.
+    @Transactional
+    public CategoryResponse activate(Long id) {
+        ServiceCategory category = categoryRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Category not found: " + id));
+        category.setActive(true);
+        return toResponse(category);
     }
 
     // Helper: entity → DTO. Απομονώνει το mapping σε ένα σημείο.

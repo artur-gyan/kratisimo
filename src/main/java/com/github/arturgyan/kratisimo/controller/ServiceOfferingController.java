@@ -54,4 +54,10 @@ public class ServiceOfferingController {
     public void delete(@PathVariable Long id) {
         offeringService.delete(id);
     }
+
+    // ---------- ACTIVATE → 200 ----------
+    @PostMapping("/{id}/activate")
+    public ServiceOfferingResponse activate(@PathVariable Long id) {
+        return offeringService.activate(id);
+    }
 }

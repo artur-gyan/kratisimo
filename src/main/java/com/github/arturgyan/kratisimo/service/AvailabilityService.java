@@ -95,6 +95,61 @@ public class AvailabilityService {
 
         return filterPast(candidateStarts, leadTime);   // Στάδιο 6
     }
+    /**
+     * Επικυρώνει ότι το ραντεβού [startsAt, endsAt) χωράει ΟΛΟΚΛΗΡΟ μέσα σε ΜΙΑ
+     * βάρδια του υπαλλήλου εκείνη τη μέρα. Πετάει IllegalArgumentException (→400)
+     * αν καμία βάρδια δεν το περικλείει.
+     *
+     * Γιατί ΕΔΩ κι όχι στο AvailabilityService του engine: το enforcement είναι
+     * ξεχωριστό από την προβολή (D64-D70 δείχνουν slots· αυτό απαγορεύει booking).
+     * Ίδια σχέση UX↔enforcement με το IDOR (D52): ο engine "δεν δείχνει" εκτός-
+     * ωραρίου slots, αλλά raw POST τα παρακάμπτει. Αυτή η μέθοδος κλείνει το κενό.
+     *
+     * public + reusable: το θα καλέσει ΚΑΙ το admin add appointment (#3).
+     */
+    public void validateWithinWorkingHours(Long employeeId, Instant startsAt, Instant endsAt) {
+        BusinessSettings settings = loadSettings();
+        ZoneId zone = ZoneId.of(settings.getTimezone());
+
+        // ── Ποια ΤΟΠΙΚΗ μέρα; ──
+        // Το startsAt είναι Instant (UTC). Το DayOfWeek/LocalDate πρέπει να βγει σε
+        // ΤΟΠΙΚΗ ώρα (D67): "Δευτέρα 00:30 Αθήνα" = "Κυριακή 22:30 UTC" — αν πάρεις
+        // τη μέρα από το raw Instant, ψάχνεις λάθος βάρδιες.
+        ZonedDateTime localStart = startsAt.atZone(zone);
+        DayOfWeek day = localStart.getDayOfWeek();
+        LocalDate date = localStart.toLocalDate();
+
+        // ── Φόρτωσε τις βάρδιες εκείνης της μέρας (D34: 0..N βάρδιες) ──
+        List<WorkingHours> shifts =
+                workingHoursRepository.findByEmployeeIdAndDayOfWeek(employeeId, day);
+
+        // Καμία βάρδια = ο υπάλληλος δεν δουλεύει αυτή τη μέρα (π.χ. Κυριακή) → 400.
+        if (shifts.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "The employee does not work on the selected day");
+        }
+
+        // ── "Περικλείεται από ΜΙΑ βάρδια;" ──
+        // Δρόμος Α: βάρδια LocalTime → Instant (ίδιο toInstant με τον engine), μετά
+        // σύγκριση Instant↔Instant. ΠΟΤΕ Instant vs LocalTime κατευθείαν (D67).
+        //
+        // Έλεγχος περίκλεισης: shift.start ≤ appt.start ΚΑΙ appt.end ≤ shift.end.
+        // Το ραντεβού ΔΕΝ επιτρέπεται να γεφυρώνει δύο βάρδιες ή να ξεχειλίζει σε
+        // διάλειμμα (D34: Νίκος 09-13 + 17-21· ραντεβού 12:30-13:30 απορρίπτεται).
+        boolean fitsInAShift = shifts.stream().anyMatch(shift -> {
+            Instant shiftStart = toInstant(date, shift.getStartTime(), zone);
+            Instant shiftEnd = toInstant(date, shift.getEndTime(), zone);
+
+            // !start.isBefore(shiftStart)  ==  start >= shiftStart
+            // !end.isAfter(shiftEnd)       ==  end   <= shiftEnd
+            return !startsAt.isBefore(shiftStart) && !endsAt.isAfter(shiftEnd);
+        });
+
+        if (!fitsInAShift) {
+            throw new IllegalArgumentException(
+                    "The selected time is outside the employee's working hours");
+        }
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     //  ΣΤΑΔΙΑ 1-3: free = working − busy

@@ -1,0 +1,168 @@
+### ═══════════════════════════════════════════════════════════════════
+###  KRATISIMO — Working-hours validation tests (Chat 13, #1)
+###
+###  ΠΩΣ ΤΡΕΧΕΙ:
+###  1. Βάλε αυτό το αρχείο ΟΠΟΥΔΗΠΟΤΕ μέσα στο project (π.χ. src/test/http/).
+###  2. Δίπλα σε κάθε "###" block εμφανίζεται ένα πράσινο ▶ (Run). Πάτα το.
+###  3. ΤΡΕΞΕ ΤΑ ΜΕ ΤΗ ΣΕΙΡΑ — το login κρατάει το token και το περνάει
+###     αυτόματα στα επόμενα (client.global.set).
+###  4. Κάθε block έχει αυτόματο έλεγχο (assert) — πράσινο = πέρασε.
+###
+###  ⚠️ ΠΡΟΣΟΧΗ: μερικά paths/params μπορεί να διαφέρουν στο project σου.
+###  Αν κάτι σκάσει 404, δες τα σχόλια "⚠️ ΑΝ 404" κάτω από κάθε request.
+### ═══════════════════════════════════════════════════════════════════
+
+@host = http://localhost:8080
+
+
+### ───────────────────────────────────────────────────────────────────
+### [0] LOGIN — παίρνει token, το αποθηκεύει αυτόματα για τα επόμενα
+### ───────────────────────────────────────────────────────────────────
+# @name login
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "kostas@example.com",
+  "password": "customer123"
+}
+
+> {%
+    client.test("Login OK (200)", function () {
+        client.assert(response.status === 200, "Login απέτυχε: " + response.status);
+    });
+    // Το AuthResponse σου ίσως λέει "token" ή "accessToken" — δοκιμάζει και τα δύο.
+    var t = response.body.token || response.body.accessToken;
+    client.assert(t, "Δεν βρέθηκε token στο response. Δες τι key επιστρέφει το AuthResponse.");
+    client.global.set("auth_token", t);
+%}
+
+
+### ───────────────────────────────────────────────────────────────────
+### [1] Βρες έγκυρα serviceIds (public, δεν θέλει token)
+###     Κρατάει αυτόματα το ΠΡΩΤΟ service id για τα επόμενα.
+### ───────────────────────────────────────────────────────────────────
+# @name services
+GET {{host}}/api/services
+
+> {%
+    client.test("Services OK (200)", function () {
+        client.assert(response.status === 200, "GET /api/services: " + response.status);
+    });
+    client.assert(response.body.length > 0, "Καμία υπηρεσία — έτρεξε ο DataSeeder; (profile=dev)");
+    client.global.set("service_id", response.body[0].id);
+    client.log("Χρησιμοποιώ service_id = " + response.body[0].id);
+%}
+# ⚠️ ΑΝ 404: το public services path σου είναι αλλού. Δες τον controller (D119).
+
+
+### ───────────────────────────────────────────────────────────────────
+### [2] HAPPY PATH — ραντεβού εντός ωραρίου → πρέπει 201
+###     employeeId=1, μελλοντική εργάσιμη ώρα.
+### ───────────────────────────────────────────────────────────────────
+# @name book_valid
+POST {{host}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "serviceIds": [{{service_id}}],
+  "employeeId": 1,
+  "startsAt": "2026-08-11T07:00:00Z"
+}
+
+> {%
+    client.test("Happy path → 201", function () {
+        client.assert(response.status === 201 || response.status === 200,
+            "Περίμενα 201, πήρα " + response.status + " — body: " + JSON.stringify(response.body));
+    });
+%}
+# ⚠️ ΑΝ 404: το booking path δεν είναι /api/appointments. Δες τον controller.
+# ⚠️ ΑΝ 400 "outside working hours": ο employee 1 δεν δουλεύει Τρίτη 10:00 τοπική,
+#    Ή το slot είναι πιασμένο. Άλλαξε το startsAt σε ώρα που ξέρεις ότι δουλεύει
+#    (τσέκαρε working_hours στο pgAdmin), ή δες [2b] παρακάτω.
+# ⚠️ ΑΝ 409: το slot πιάστηκε από προηγούμενο test run. Άλλαξε ώρα (07:30, 08:00...).
+
+
+### ───────────────────────────────────────────────────────────────────
+### [3] ★ Η ΚΥΡΙΑ ΔΟΚΙΜΗ: ΕΚΤΟΣ ΩΡΑΡΙΟΥ (Κυριακή) → πρέπει 400
+###     2026-08-16 = Κυριακή. ΠΡΙΝ το fix περνούσε (201). ΤΩΡΑ κόβεται.
+### ───────────────────────────────────────────────────────────────────
+# @name book_sunday
+POST {{host}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "serviceIds": [{{service_id}}],
+  "employeeId": 1,
+  "startsAt": "2026-08-16T09:00:00Z"
+}
+
+> {%
+    client.test("Κυριακή → 400 (το gap έκλεισε)", function () {
+        client.assert(response.status === 400,
+            "ΑΠΟΤΥΧΙΑ FIX: περίμενα 400, πήρα " + response.status +
+            ". Αν πήρες 201, ο working-hours έλεγχος ΔΕΝ τρέχει.");
+    });
+    client.log("Μήνυμα: " + (response.body.message || JSON.stringify(response.body)));
+%}
+# ⚠️ ΑΝ ο employee 1 ΟΝΤΩΣ δουλεύει Κυριακή (τσέκαρε seeder), άλλαξε employeeId
+#    σε κάποιον που ΔΕΝ δουλεύει Κυριακή.
+
+
+### ───────────────────────────────────────────────────────────────────
+### [4] ★ D34 EDGE CASE: ξεχείλισμα βάρδιας (Νίκος, 09-13 + 17-21)
+###     Ραντεβού 12:45 τοπική → ξεχειλίζει στο διάλειμμα → 400.
+###     12:45 Αθήνα (καλοκαίρι UTC+3) = 09:45 UTC.
+###
+###     ⚠️ ΠΡΩΤΑ βρες το employeeId του Νίκου (pgAdmin):
+###       SELECT ep.id, u.full_name FROM employee_profiles ep
+###       JOIN users u ON u.id = ep.user_id WHERE u.full_name LIKE '%Νίκος%';
+###     Άλλαξε το employeeId παρακάτω (τώρα υποθέτω 4).
+### ───────────────────────────────────────────────────────────────────
+# @name book_overflow
+POST {{host}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "serviceIds": [{{service_id}}],
+  "employeeId": 4,
+  "startsAt": "2026-08-11T09:45:00Z"
+}
+
+> {%
+    client.test("Ξεχείλισμα βάρδιας → 400", function () {
+        client.assert(response.status === 400,
+            "Περίμενα 400 (ξεχειλίζει στο διάλειμμα), πήρα " + response.status +
+            ". Αν 201: ο έλεγχος δεν πιάνει το bridge-across-shifts.");
+    });
+    client.log("Μήνυμα: " + (response.body.message || JSON.stringify(response.body)));
+%}
+# ⚠️ ΑΝ 201: πιθανόν το service #1 είναι πολύ σύντομο και χωράει πριν τις 13:00.
+#    Βάλε περισσότερα serviceIds ώστε η συνολική διάρκεια να ξεπερνά τις 13:00,
+#    π.χ. "serviceIds": [1, 2, 3].
+# ⚠️ ΑΝ 400 "does not work on the selected day": λάθος employeeId — δεν είναι ο Νίκος.
+
+
+### ───────────────────────────────────────────────────────────────────
+### [5] MΕΣΑΝΥΧΤΑ → πρέπει 400 (κανείς δεν δουλεύει 02:00)
+### ───────────────────────────────────────────────────────────────────
+POST {{host}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "serviceIds": [{{service_id}}],
+  "employeeId": 1,
+  "startsAt": "2026-08-12T23:00:00Z"
+}
+
+> {%
+    client.test("Μεσάνυχτα → 400", function () {
+        client.assert(response.status === 400,
+            "Περίμενα 400, πήρα " + response.status);
+    });
+%}
+# 23:00 UTC = 02:00 τοπική επόμενης μέρας — εκτός κάθε βάρδιας.

@@ -158,4 +158,13 @@ public class EmployeeService {
                 serviceSummaries
         );
     }
+
+    // ---------- ACTIVATE (reactivation) ----------
+    @Transactional
+    public EmployeeResponse activate(Long id) {
+        EmployeeProfile profile = employeeProfileRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Employee not found: " + id));
+        profile.setActive(true);   // ξανα-εμφανίζεται στην κράτηση (D36)
+        return toResponse(profile);
+    }
 }

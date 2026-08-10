@@ -118,6 +118,22 @@ public class ServiceOfferingService {
         offering.setActive(false);   // soft delete (D20) — dirty checking κάνει το UPDATE
     }
 
+    // ---------- ACTIVATE (reactivation) ----------
+    // Απαγόρευση αν η κατηγορία είναι inactive (D98: όχι ενεργή υπηρεσία σε ανενεργό parent).
+    @Transactional
+    public ServiceOfferingResponse activate(Long id) {
+        ServiceOffering offering = offeringRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Service not found: " + id));
+
+        if (!offering.getCategory().isActive()) {
+            throw new IllegalArgumentException(
+                    "Cannot activate a service whose category is inactive — activate the category first");
+        }
+
+        offering.setActive(true);
+        return toResponse(offering);
+    }
+
     // ---------- Mapping helper ----------
     // private — λεπτομέρεια υλοποίησης, όχι μέρος του public API
     private ServiceOfferingResponse toResponse(ServiceOffering o) {

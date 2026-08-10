@@ -59,20 +59,37 @@ export default function Navbar() {
                     {user && isAdmin && (
                         <>
                             <Link
-                                to="/admin/dashboard"
-                                className="text-slate/70 text-sm font-medium px-3 py-2 rounded-lg hover:bg-page hover:text-slate transition-colors"
-                            >
-                                Dashboard
-                            </Link>
-                            <Link
                                 to="/admin/appointments"
                                 className="text-slate/70 text-sm font-medium px-3 py-2 rounded-lg hover:bg-page hover:text-slate transition-colors"
                             >
                                 Ραντεβού
                             </Link>
+                            <Link
+                                to="/admin/catalog"
+                                className="text-slate/70 text-sm font-medium px-3 py-2 rounded-lg hover:bg-page hover:text-slate transition-colors"
+                            >
+                                Υπηρεσίες
+                            </Link>
+                            <Link
+                                to="/admin/employees"
+                                className="text-slate/70 text-sm font-medium px-3 py-2 rounded-lg hover:bg-page hover:text-slate transition-colors"
+                            >
+                                Υπάλληλοι
+                            </Link>
+                            <Link
+                                to="/admin/dashboard"
+                                className="text-slate/70 text-sm font-medium px-3 py-2 rounded-lg hover:bg-page hover:text-slate transition-colors"
+                            >
+                                Στατιστικά
+                            </Link>
+                            <Link
+                                to="/admin/settings"
+                                className="text-slate/70 text-sm font-medium px-3 py-2 rounded-lg hover:bg-page hover:text-slate transition-colors"
+                            >
+                                Ρυθμίσεις
+                            </Link>
                         </>
                     )}
-
                     {/* --- ΚΟΙΝΑ ΓΙΑ ΣΥΝΔΕΔΕΜΕΝΟ --- */}
                     {/* --- ΚΟΙΝΑ ΓΙΑ ΣΥΝΔΕΔΕΜΕΝΟ --- */}
                     {user && (

@@ -29,6 +29,12 @@ public class CategoryController {
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
+    // POST /{id}/activate → 200 (reactivation, ρητή πράξη ≠ update)
+    @PostMapping("/{id}/activate")
+    public CategoryResponse activate(@PathVariable Long id) {
+        return categoryService.activate(id);
+    }
+
     // GET all → 200
     @GetMapping
     public List<CategoryResponse> findAll() {

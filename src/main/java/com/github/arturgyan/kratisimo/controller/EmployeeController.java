@@ -55,4 +55,10 @@ public class EmployeeController {
     public void delete(@PathVariable Long id) {
         employeeService.delete(id);
     }
+
+    // ---------- ACTIVATE → 200 ----------
+    @PostMapping("/{id}/activate")
+    public EmployeeResponse activate(@PathVariable Long id) {
+        return employeeService.activate(id);
+    }
 }
