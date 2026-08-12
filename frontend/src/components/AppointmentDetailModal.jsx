@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { X } from 'lucide-react';
+import { adminAppointmentService } from '../services/adminAppointmentService';
 
-// Status config: label + χρώματα (ίδιο pattern με DashboardPage — single source).
 const STATUS_CONFIG = {
     COMPLETED: { label: 'Ολοκληρωμένο', dot: 'bg-success', text: 'text-success' },
     CONFIRMED: { label: 'Επιβεβαιωμένο', dot: 'bg-blue', text: 'text-blue' },
@@ -25,23 +26,38 @@ function formatMoney(value) {
     return (Number(value) || 0).toFixed(2) + ' €';
 }
 
-export default function AppointmentDetailModal({ appointment, onClose }) {
+export default function AppointmentDetailModal({ appointment, onClose, onChanged, onReschedule }) {
+    const [working, setWorking] = useState(false);
+    const [error, setError] = useState('');
+
     if (!appointment) return null;
 
     const status = STATUS_CONFIG[appointment.status] || STATUS_CONFIG.PENDING;
 
+    // Ενέργειες επιτρεπτές ΜΟΝΟ σε CONFIRMED (state machine, D148).
+    const canModify = appointment.status === 'CONFIRMED';
+
+    async function changeStatus(target) {
+        setError('');
+        setWorking(true);
+        try {
+            await adminAppointmentService.changeStatus(appointment.id, target);
+            onChanged();
+        } catch (err) {
+            setError(err.message || 'Η ενέργεια απέτυχε.');
+            setWorking(false);
+        }
+    }
+
     return (
-        // Overlay: κλικ έξω κλείνει το modal.
         <div
             className="fixed inset-0 bg-slate/40 flex items-center justify-center p-4 z-50"
             onClick={onClose}
         >
-            {/* Το ίδιο το modal: stopPropagation ώστε κλικ μέσα να ΜΗΝ κλείνει. */}
             <div
                 className="bg-white rounded-2xl shadow-xl w-full max-w-md"
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate/10">
                     <h2 className="text-lg font-semibold text-slate">Λεπτομέρειες ραντεβού</h2>
                     <button
@@ -52,9 +68,7 @@ export default function AppointmentDetailModal({ appointment, onClose }) {
                     </button>
                 </div>
 
-                {/* Body */}
                 <div className="px-6 py-5 space-y-4">
-                    {/* Status badge */}
                     <div className="flex items-center gap-2">
                         <span className={`w-2.5 h-2.5 rounded-full ${status.dot}`} />
                         <span className={`text-sm font-semibold ${status.text}`}>
@@ -70,7 +84,6 @@ export default function AppointmentDetailModal({ appointment, onClose }) {
                         value={`${formatTime(appointment.startsAt)} – ${formatTime(appointment.endsAt)}`}
                     />
 
-                    {/* Υπηρεσίες */}
                     <div>
                         <p className="text-slate/50 text-xs mb-1.5">Υπηρεσίες</p>
                         <div className="space-y-1">
@@ -85,7 +98,6 @@ export default function AppointmentDetailModal({ appointment, onClose }) {
                         </div>
                     </div>
 
-                    {/* Σύνολα */}
                     <div className="flex items-center justify-between pt-3 border-t border-slate/10">
                         <div>
                             <p className="text-slate/50 text-xs">Διάρκεια</p>
@@ -100,13 +112,45 @@ export default function AppointmentDetailModal({ appointment, onClose }) {
                             </p>
                         </div>
                     </div>
+
+                    {error && (
+                        <div className="bg-danger-tint text-danger rounded-xl px-4 py-3 text-sm">
+                            {error}
+                        </div>
+                    )}
                 </div>
+
+                {/* Footer: ενέργειες ΜΟΝΟ σε CONFIRMED */}
+                {canModify && (
+                    <div className="px-6 py-4 border-t border-slate/10 space-y-2">
+                        <button
+                            onClick={() => changeStatus('COMPLETED')}
+                            disabled={working}
+                            className="w-full py-2.5 rounded-lg bg-success text-white text-sm font-medium hover:bg-success/90 transition-colors disabled:opacity-50"
+                        >
+                            {working ? 'Επεξεργασία...' : 'Ολοκληρώθηκε'}
+                        </button>
+                        <button
+                            onClick={() => onReschedule(appointment)}
+                            disabled={working}
+                            className="w-full py-2.5 rounded-lg border border-blue text-blue text-sm font-medium hover:bg-blue-tint transition-colors disabled:opacity-50"
+                        >
+                            Επαναπρογραμματισμός
+                        </button>
+                        <button
+                            onClick={() => changeStatus('CANCELLED')}
+                            disabled={working}
+                            className="w-full py-2.5 rounded-lg bg-danger text-white text-sm font-medium hover:bg-danger/90 transition-colors disabled:opacity-50"
+                        >
+                            {working ? 'Επεξεργασία...' : 'Ακύρωση ραντεβού'}
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
 }
 
-// Top-level helper (ΟΧΙ φωλιασμένο — προσοχή στο γνωστό λάθος scope).
 function DetailRow({ label, value }) {
     return (
         <div className="flex items-center justify-between">

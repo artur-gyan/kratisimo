@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Archive, RotateCcw } from 'lucide-react';
+import { Plus, Pencil, Trash2, Archive, RotateCcw, Clock, CalendarOff } from 'lucide-react';
 import { adminEmployeeService } from '../services/adminEmployeeService';
 import { catalogService } from '../services/catalogService';
 import EmployeeModal from '../components/EmployeeModal';
+import WorkingHoursModal from '../components/WorkingHoursModal';
+import TimeOffModal from '../components/TimeOffModal';
 
 export default function AdminEmployeesPage() {
     const [employees, setEmployees] = useState([]);
@@ -13,6 +15,8 @@ export default function AdminEmployeesPage() {
 
     const [modal, setModal] = useState(null);           // { mode, employee }
     const [deleteTarget, setDeleteTarget] = useState(null);
+    const [hoursFor, setHoursFor] = useState(null);     // ωράριο modal
+    const [timeOffFor, setTimeOffFor] = useState(null); // άδειες modal
 
     async function load() {
         setLoading(true);
@@ -106,6 +110,25 @@ export default function AdminEmployeesPage() {
                             </div>
 
                             <div className="flex items-center gap-1 flex-shrink-0">
+                                {/* Ωράριο — ευδιάκριτο κουμπί με label */}
+                                <button
+                                    onClick={() => setHoursFor(emp)}
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate/15 text-slate/70 text-xs font-medium hover:bg-page hover:text-blue transition-colors"
+                                    title="Ωράριο εργασίας"
+                                >
+                                    <Clock size={14} /> Ωράριο
+                                </button>
+                                {/* Άδειες */}
+                                <button
+                                    onClick={() => setTimeOffFor(emp)}
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate/15 text-slate/70 text-xs font-medium hover:bg-page hover:text-blue transition-colors"
+                                    title="Άδειες"
+                                >
+                                    <CalendarOff size={14} /> Άδειες
+                                </button>
+
+                                <span className="w-px h-6 bg-slate/10 mx-1" />
+
                                 <button
                                     onClick={() => setModal({ mode: 'edit', employee: emp })}
                                     className="p-2 rounded-lg text-slate/50 hover:bg-page hover:text-blue transition-colors"
@@ -170,6 +193,23 @@ export default function AdminEmployeesPage() {
                     services={services}
                     onClose={() => setModal(null)}
                     onSaved={handleSaved}
+                />
+            )}
+
+            {/* Ωράριο modal */}
+            {hoursFor && (
+                <WorkingHoursModal
+                    employee={hoursFor}
+                    onClose={() => setHoursFor(null)}
+                    onSaved={() => setHoursFor(null)}
+                />
+            )}
+
+            {/* Άδειες modal */}
+            {timeOffFor && (
+                <TimeOffModal
+                    employee={timeOffFor}
+                    onClose={() => setTimeOffFor(null)}
                 />
             )}
 

@@ -1,15 +1,19 @@
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { adminAppointmentService } from '../services/adminAppointmentService';
 import { adminEmployeeService } from '../services/adminEmployeeService';
 import { settingsService } from '../services/settingsService';
+import { workingHoursService } from '../services/workingHoursService';
+import { timeOffService } from '../services/timeOffService';
 import AppointmentDetailModal from '../components/AppointmentDetailModal';
+import AddAppointmentModal from '../components/AddAppointmentModal';
+import RescheduleModal from '../components/RescheduleModal';
 
 // --- Ρυθμίσεις grid ---
 const START_HOUR = 8;
 const END_HOUR = 22;
-const HOUR_HEIGHT = 90; // pixels ανά ώρα (μεγαλύτερο → χωράει όνομα σε μικρά ραντεβού)
-const GRID_PADDING = 12; // χώρος πάνω/κάτω ώστε 08:00 & 22:00 να μην κόβονται
+const HOUR_HEIGHT = 90;
+const GRID_PADDING = 12;
 
 const DAY_NAMES = ['Δευ', 'Τρί', 'Τετ', 'Πέμ', 'Παρ', 'Σάβ', 'Κυρ'];
 const MONTH_NAMES = [
@@ -17,15 +21,15 @@ const MONTH_NAMES = [
     'Ιουλίου', 'Αυγούστου', 'Σεπτεμβρίου', 'Οκτωβρίου', 'Νοεμβρίου', 'Δεκεμβρίου',
 ];
 
+const JS_DAY_TO_ENUM = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+
 const STATUS_BLOCK = {
     COMPLETED: 'bg-success-tint border-success/30 text-success',
     CONFIRMED: 'bg-blue-tint border-blue/30 text-blue',
     PENDING: 'bg-page border-blue-soft/40 text-slate',
     NO_SHOW: 'bg-page border-slate/20 text-slate/50',
-    // CANCELLED σκόπιμα ΕΚΤΟΣ — φιλτράρεται πριν το render
 };
 
-// --- Helpers ημερομηνιών ---
 function getMonday(date) {
     const d = new Date(date);
     const day = d.getDay();
@@ -53,8 +57,28 @@ function formatTime(instant) {
     });
 }
 
+function timeToMinutes(t) {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+}
+
+function toDateStr(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+// Χτίζει ISO Instant από τοπική μέρα (Date) + λεπτά-από-μεσάνυχτα.
+function buildInstantFromDayMinutes(day, minutes) {
+    const d = new Date(day);
+    d.setHours(0, 0, 0, 0);
+    d.setMinutes(minutes);
+    return d.toISOString();
+}
+
 export default function AdminAppointmentsPage() {
-    const [viewMode, setViewMode] = useState('week'); // 'week' | 'day'
+    const [viewMode, setViewMode] = useState('week');
     const [anchorDate, setAnchorDate] = useState(() => {
         const d = new Date();
         d.setHours(0, 0, 0, 0);
@@ -63,20 +87,23 @@ export default function AdminAppointmentsPage() {
     const [appointments, setAppointments] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
-    const [granularity, setGranularity] = useState(15); // fallback· ενημερώνεται από settings
+    const [granularity, setGranularity] = useState(15);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [selected, setSelected] = useState(null);
+    const [addModal, setAddModal] = useState(null);
+    const [rescheduleTarget, setRescheduleTarget] = useState(null); // ΝΕΟ: ραντεβού προς reschedule
+    const [dragError, setDragError] = useState('');
 
-    // Μέρες που εμφανίζονται.
+    const [workingHoursMap, setWorkingHoursMap] = useState({});
+    const [timeOffMap, setTimeOffMap] = useState({});
+
     const days = viewMode === 'week'
         ? Array.from({ length: 7 }, (_, i) => addDays(getMonday(anchorDate), i))
         : [anchorDate];
 
-    // Ενεργοί υπάλληλοι (για dropdown week + στήλες day).
     const activeEmployees = employees.filter((e) => e.active);
 
-    // --- Αρχική φόρτωση: υπάλληλοι + settings (μία φορά) ---
     useEffect(() => {
         async function loadStatic() {
             try {
@@ -87,7 +114,6 @@ export default function AdminAppointmentsPage() {
                 setEmployees(emps);
                 setGranularity(settings.slotGranularityMinutes || 15);
 
-                // Προεπιλογή week: πρώτος ενεργός υπάλληλος.
                 const firstActive = emps.find((e) => e.active);
                 if (firstActive) {
                     setSelectedEmployeeId(firstActive.employeeProfileId);
@@ -99,23 +125,63 @@ export default function AdminAppointmentsPage() {
         loadStatic();
     }, []);
 
-    // --- Φόρτωση ραντεβού ανά ορατό εύρος ---
     useEffect(() => {
-        async function load() {
-            setLoading(true);
-            setError('');
+        if (activeEmployees.length === 0) return;
+        async function loadHours() {
             try {
-                const from = days[0];
-                const to = days[days.length - 1];
-                const result = await adminAppointmentService.getInRange(from, to);
-                setAppointments(result);
-            } catch (err) {
-                setError(err.message);
-            } finally {
-                setLoading(false);
+                const results = await Promise.all(
+                    activeEmployees.map((emp) =>
+                        workingHoursService.getSchedule(emp.employeeProfileId)
+                            .then((res) => [emp.employeeProfileId, res.shifts || []])
+                            .catch(() => [emp.employeeProfileId, []])
+                    )
+                );
+                setWorkingHoursMap(Object.fromEntries(results));
+            } catch {
+                // σιωπηλά
             }
         }
-        load();
+        loadHours();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [employees]);
+
+    useEffect(() => {
+        if (activeEmployees.length === 0) return;
+        async function loadTimeOff() {
+            try {
+                const results = await Promise.all(
+                    activeEmployees.map((emp) =>
+                        timeOffService.list(emp.employeeProfileId)
+                            .then((res) => [emp.employeeProfileId, res || []])
+                            .catch(() => [emp.employeeProfileId, []])
+                    )
+                );
+                setTimeOffMap(Object.fromEntries(results));
+            } catch {
+                // σιωπηλά
+            }
+        }
+        loadTimeOff();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [employees, viewMode, anchorDate]);
+
+    async function loadAppointments() {
+        setLoading(true);
+        setError('');
+        try {
+            const from = days[0];
+            const to = days[days.length - 1];
+            const result = await adminAppointmentService.getInRange(from, to);
+            setAppointments(result);
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    useEffect(() => {
+        loadAppointments();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [viewMode, anchorDate]);
 
@@ -130,10 +196,8 @@ export default function AdminAppointmentsPage() {
         setAnchorDate(d);
     }
 
-    // Ενεργά (μη-ακυρωμένα) ραντεβού — βάση για όλα τα φίλτρα.
     const visibleAppointments = appointments.filter((a) => a.status !== 'CANCELLED');
 
-    // Ραντεβού μιας μέρας (προαιρετικά ενός υπαλλήλου).
     function apptsFor(day, employeeId = null) {
         return visibleAppointments.filter((a) => {
             if (!isSameDay(new Date(a.startsAt), day)) return false;
@@ -142,7 +206,23 @@ export default function AdminAppointmentsPage() {
         });
     }
 
-    // Θέση block.
+    function dayStatus(day, employeeId) {
+        const offs = timeOffMap[employeeId] || [];
+        const dayStart = new Date(day); dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(day); dayEnd.setHours(23, 59, 59, 999);
+        const onLeave = offs.some((t) => {
+            const s = new Date(t.startsAt);
+            const e = new Date(t.endsAt);
+            return s < dayEnd && e > dayStart;
+        });
+
+        const enumDay = JS_DAY_TO_ENUM[day.getDay()];
+        const shifts = (workingHoursMap[employeeId] || []).filter((s) => s.dayOfWeek === enumDay);
+        const closed = shifts.length === 0;
+
+        return { closed, onLeave, shifts };
+    }
+
     function blockPosition(appointment) {
         const start = new Date(appointment.startsAt);
         const end = new Date(appointment.endsAt);
@@ -154,10 +234,82 @@ export default function AdminAppointmentsPage() {
         };
     }
 
+    function shiftBand(shift) {
+        const startMin = timeToMinutes(shift.startTime) - START_HOUR * 60;
+        const endMin = timeToMinutes(shift.endTime) - START_HOUR * 60;
+        const top = (startMin / 60) * HOUR_HEIGHT + GRID_PADDING;
+        const height = ((endMin - startMin) / 60) * HOUR_HEIGHT;
+        return { top: Math.max(top, GRID_PADDING), height: Math.max(height, 0) };
+    }
+
+    function handleColumnClick(e, day, employeeId) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const y = e.clientY - rect.top - GRID_PADDING;
+        if (y < 0) return;
+
+        const minutesFromStart = (y / HOUR_HEIGHT) * 60;
+        const absoluteMinutes = START_HOUR * 60 + minutesFromStart;
+        const snapped = Math.floor(absoluteMinutes / granularity) * granularity;
+        const h = Math.floor(snapped / 60);
+        const m = snapped % 60;
+
+        setAddModal({
+            date: toDateStr(day),
+            time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+            employeeId: employeeId ?? null,
+        });
+    }
+
+    // --- ΝΕΟ: drag-and-drop reschedule ---
+    // Στο drop υπολογίζω νέα ώρα (Y→snap) + νέο υπάλληλο/μέρα (η στήλη), καλώ reschedule.
+    async function handleDrop(e, day, employeeId) {
+        e.preventDefault();
+        const raw = e.dataTransfer.getData('text/plain');
+        if (!raw) return;
+
+        const [apptId, grabOffsetStr] = raw.split(':');
+        const grabOffset = Number(grabOffsetStr) || 0;
+
+        const appt = visibleAppointments.find((a) => String(a.id) === apptId);
+        if (!appt) return;
+
+        const rect = e.currentTarget.getBoundingClientRect();
+        // Αφαίρεσε το grab offset: πού πάει η ΑΡΧΗ του block, όχι το ποντίκι.
+        const y = e.clientY - rect.top - GRID_PADDING - grabOffset;
+        const minutesFromStart = (y / HOUR_HEIGHT) * 60;
+        const absoluteMinutes = START_HOUR * 60 + minutesFromStart;
+        const snapped = Math.round(absoluteMinutes / granularity) * granularity;
+        const clamped = Math.max(START_HOUR * 60, Math.min(snapped, END_HOUR * 60));
+
+        const newStartsAt = buildInstantFromDayMinutes(day, clamped);
+
+        const sameTime = new Date(appt.startsAt).toISOString() === newStartsAt;
+        const sameEmployee = appt.employeeId === employeeId;
+        if (sameTime && sameEmployee) return;
+
+        setDragError('');
+        try {
+            await adminAppointmentService.reschedule(appt.id, {
+                startsAt: newStartsAt,
+                employeeId: employeeId,
+            });
+            loadAppointments();
+        } catch (err) {
+            if (err.status === 409) {
+                setDragError('Ο υπάλληλος είναι ήδη κλεισμένος αυτή την ώρα.');
+            } else {
+                setDragError(err.message || 'Ο επαναπρογραμματισμός απέτυχε.');
+            }
+        }
+    }
+
+    function allowDrop(e) {
+        e.preventDefault();  // ΑΠΑΡΑΙΤΗΤΟ: χωρίς αυτό το drop δεν πυροδοτείται.
+    }
+
     const hours = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i);
     const totalGridHeight = (END_HOUR - START_HOUR) * HOUR_HEIGHT + GRID_PADDING * 2;
 
-    // Γραμμές granularity: κάθε πόσα px μπαίνει λεπτή γραμμή.
     const linesPerHour = Math.max(1, Math.round(60 / granularity));
     const granularityStep = HOUR_HEIGHT / linesPerHour;
 
@@ -165,31 +317,49 @@ export default function AdminAppointmentsPage() {
         ? `${days[0].getDate()} – ${days[6].getDate()} ${MONTH_NAMES[days[6].getMonth()]} ${days[6].getFullYear()}`
         : `${DAY_NAMES[(anchorDate.getDay() + 6) % 7]} ${anchorDate.getDate()} ${MONTH_NAMES[anchorDate.getMonth()]} ${anchorDate.getFullYear()}`;
 
-    // --- Render ενός appointment block ---
     function renderBlock(appt) {
         const pos = blockPosition(appt);
         const style = STATUS_BLOCK[appt.status] || STATUS_BLOCK.PENDING;
+
+        const availableForServices = pos.height - 42;
+        const maxServiceLines = Math.max(0, Math.floor(availableForServices / 16));
+        const showServices = maxServiceLines >= 1;
+        const shownServices = showServices ? appt.serviceNames.slice(0, maxServiceLines) : [];
+        const hiddenCount = appt.serviceNames.length - shownServices.length;
+
+        // Μόνο CONFIRMED σέρνεται (ίδιο κριτήριο με backend reschedule, D145).
+        const draggable = appt.status === 'CONFIRMED';
+
         return (
             <button
                 key={appt.id}
-                onClick={() => setSelected(appt)}
-                className={`absolute left-1 right-1 rounded-lg border px-2 py-1 text-left overflow-hidden hover:shadow-md transition-shadow z-10 ${style}`}
+                draggable={draggable}
+                onDragStart={(e) => {
+                    const blockRect = e.currentTarget.getBoundingClientRect();
+                    const grabOffset = e.clientY - blockRect.top;
+                    // id + offset μαζί, χωρισμένα με ":" — κανένα state, κανένα re-render.
+                    e.dataTransfer.setData('text/plain', `${appt.id}:${grabOffset}`);
+                    e.dataTransfer.effectAllowed = 'move';
+                }}
+                onClick={(e) => { e.stopPropagation(); setSelected(appt); }}
+                className={`absolute left-1 right-1 rounded-lg border px-2 py-1 text-left overflow-hidden hover:shadow-md transition-shadow z-10 ${style} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
                 style={{ top: pos.top, height: pos.height }}
             >
                 <div className="text-xs font-semibold truncate">{formatTime(appt.startsAt)}</div>
                 <div className="text-xs truncate">{appt.customerName}</div>
-                {pos.height > 55 && (
-                    <div className="text-xs truncate opacity-70">{appt.serviceNames.join(', ')}</div>
+                {shownServices.map((name, i) => (
+                    <div key={i} className="text-xs truncate opacity-70 leading-tight">{name}</div>
+                ))}
+                {showServices && hiddenCount > 0 && (
+                    <div className="text-xs opacity-50 leading-tight">+{hiddenCount} ακόμη</div>
                 )}
             </button>
         );
     }
 
-    // --- Background γραμμές (ώρες + granularity) για μία στήλη ---
     function ColumnBackground() {
         return (
             <>
-                {/* Ώρες: έντονη γραμμή */}
                 {hours.slice(0, -1).map((h, i) => (
                     <div
                         key={`h-${h}`}
@@ -197,14 +367,61 @@ export default function AdminAppointmentsPage() {
                         style={{ top: i * HOUR_HEIGHT + GRID_PADDING }}
                     />
                 ))}
-                {/* Granularity: λεπτές γραμμές (παραλείπει όσες πέφτουν πάνω στις ώρες) */}
                 {Array.from({ length: (END_HOUR - START_HOUR) * linesPerHour }, (_, i) => {
-                    if (i % linesPerHour === 0) return null; // ώρα, ήδη ζωγραφισμένη
+                    if (i % linesPerHour === 0) return null;
                     return (
                         <div
                             key={`g-${i}`}
-                            className="absolute left-0 right-0 border-b border-slate/5"
+                            className="absolute left-0 right-0 border-b border-slate/15 border-dashed"
                             style={{ top: i * granularityStep + GRID_PADDING }}
+                        />
+                    );
+                })}
+            </>
+        );
+    }
+
+    function StatusOverlay({ status }) {
+        if (status.onLeave) {
+            return (
+                <div
+                    className="absolute inset-0 z-0 pointer-events-none flex items-start justify-center pt-3"
+                    style={{
+                        background:
+                            'repeating-linear-gradient(45deg, rgba(163,45,45,0.10) 0, rgba(163,45,45,0.10) 10px, rgba(163,45,45,0.16) 10px, rgba(163,45,45,0.16) 20px)',
+                    }}
+                >
+                    <span className="bg-danger text-white text-[10px] font-semibold tracking-wide px-2 py-0.5 rounded-full shadow-sm">
+                        ΑΔΕΙΑ
+                    </span>
+                </div>
+            );
+        }
+        if (status.closed) {
+            return (
+                <div
+                    className="absolute inset-0 z-0 pointer-events-none flex items-start justify-center pt-3"
+                    style={{
+                        background:
+                            'repeating-linear-gradient(45deg, rgba(15,23,42,0.05) 0, rgba(15,23,42,0.05) 10px, rgba(15,23,42,0.09) 10px, rgba(15,23,42,0.09) 20px)',
+                    }}
+                >
+                    <span className="bg-slate text-white text-[10px] font-semibold tracking-wide px-2 py-0.5 rounded-full shadow-sm">
+                        ΡΕΠΟ
+                    </span>
+                </div>
+            );
+        }
+        return (
+            <>
+                <div className="absolute inset-0 bg-slate/[0.06] z-0 pointer-events-none" />
+                {status.shifts.map((shift, i) => {
+                    const band = shiftBand(shift);
+                    return (
+                        <div
+                            key={i}
+                            className="absolute left-0 right-0 bg-white z-0 pointer-events-none"
+                            style={{ top: band.top, height: band.height }}
                         />
                     );
                 })}
@@ -216,7 +433,6 @@ export default function AdminAppointmentsPage() {
     function WeekView() {
         return (
             <div className="bg-white border border-slate/10 rounded-2xl overflow-hidden">
-                {/* Header μερών */}
                 <div className="grid border-b border-slate/10" style={{ gridTemplateColumns: `60px repeat(7, 1fr)` }}>
                     <div className="border-r border-slate/10" />
                     {days.map((day, i) => {
@@ -230,9 +446,7 @@ export default function AdminAppointmentsPage() {
                     })}
                 </div>
 
-                {/* Body */}
                 <div className="grid" style={{ gridTemplateColumns: `60px repeat(7, 1fr)` }}>
-                    {/* Στήλη ωρών */}
                     <div className="border-r border-slate/10 relative" style={{ height: totalGridHeight }}>
                         {hours.map((h, i) => (
                             <div
@@ -245,13 +459,23 @@ export default function AdminAppointmentsPage() {
                         ))}
                     </div>
 
-                    {/* Στήλες μερών */}
-                    {days.map((day, dayIdx) => (
-                        <div key={dayIdx} className="border-r border-slate/10 last:border-r-0 relative" style={{ height: totalGridHeight }}>
-                            <ColumnBackground />
-                            {apptsFor(day, selectedEmployeeId).map(renderBlock)}
-                        </div>
-                    ))}
+                    {days.map((day, dayIdx) => {
+                        const status = selectedEmployeeId ? dayStatus(day, selectedEmployeeId) : null;
+                        return (
+                            <div
+                                key={dayIdx}
+                                onClick={(e) => selectedEmployeeId && handleColumnClick(e, day, selectedEmployeeId)}
+                                onDragOver={allowDrop}
+                                onDrop={(e) => selectedEmployeeId && handleDrop(e, day, selectedEmployeeId)}
+                                className="border-r border-slate/10 last:border-r-0 relative cursor-pointer"
+                                style={{ height: totalGridHeight }}
+                            >
+                                {status && <StatusOverlay status={status} />}
+                                <ColumnBackground />
+                                {apptsFor(day, selectedEmployeeId).map(renderBlock)}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
         );
@@ -261,7 +485,6 @@ export default function AdminAppointmentsPage() {
     function DayView() {
         return (
             <div className="bg-white border border-slate/10 rounded-2xl overflow-hidden">
-                {/* Header υπαλλήλων */}
                 <div className="grid border-b border-slate/10" style={{ gridTemplateColumns: `60px repeat(${activeEmployees.length}, 1fr)` }}>
                     <div className="border-r border-slate/10" />
                     {activeEmployees.map((emp) => (
@@ -271,12 +494,10 @@ export default function AdminAppointmentsPage() {
                     ))}
                 </div>
 
-                {/* Body */}
                 {activeEmployees.length === 0 ? (
                     <div className="py-16 text-center text-slate/50">Κανένας ενεργός υπάλληλος.</div>
                 ) : (
                     <div className="grid" style={{ gridTemplateColumns: `60px repeat(${activeEmployees.length}, 1fr)` }}>
-                        {/* Στήλη ωρών */}
                         <div className="border-r border-slate/10 relative" style={{ height: totalGridHeight }}>
                             {hours.map((h, i) => (
                                 <div
@@ -289,13 +510,23 @@ export default function AdminAppointmentsPage() {
                             ))}
                         </div>
 
-                        {/* Στήλες υπαλλήλων */}
-                        {activeEmployees.map((emp) => (
-                            <div key={emp.employeeProfileId} className="border-r border-slate/10 last:border-r-0 relative" style={{ height: totalGridHeight }}>
-                                <ColumnBackground />
-                                {apptsFor(anchorDate, emp.employeeProfileId).map(renderBlock)}
-                            </div>
-                        ))}
+                        {activeEmployees.map((emp) => {
+                            const status = dayStatus(anchorDate, emp.employeeProfileId);
+                            return (
+                                <div
+                                    key={emp.employeeProfileId}
+                                    onClick={(e) => handleColumnClick(e, anchorDate, emp.employeeProfileId)}
+                                    onDragOver={allowDrop}
+                                    onDrop={(e) => handleDrop(e, anchorDate, emp.employeeProfileId)}
+                                    className="border-r border-slate/10 last:border-r-0 relative cursor-pointer"
+                                    style={{ height: totalGridHeight }}
+                                >
+                                    <StatusOverlay status={status} />
+                                    <ColumnBackground />
+                                    {apptsFor(anchorDate, emp.employeeProfileId).map(renderBlock)}
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
             </div>
@@ -304,13 +535,9 @@ export default function AdminAppointmentsPage() {
 
     return (
         <div className="max-w-7xl mx-auto px-4 py-6">
-
-            {/* --- Toolbar --- */}
             <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
                 <div className="flex items-center gap-4">
                     <h1 className="text-2xl font-semibold text-slate">Ραντεβού</h1>
-
-                    {/* Dropdown υπαλλήλου — ΜΟΝΟ σε week view */}
                     {viewMode === 'week' && (
                         <div className="flex items-center gap-2">
                             <span className="text-slate/60 text-sm">Υπάλληλος:</span>
@@ -330,6 +557,13 @@ export default function AdminAppointmentsPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setAddModal({ date: '', time: '', employeeId: null })}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue text-white text-sm font-medium hover:bg-blue/90 transition-colors mr-2"
+                    >
+                        <Plus size={16} /> Νέο ραντεβού
+                    </button>
+
                     <button onClick={() => navigate(-1)} className="p-2 rounded-lg border border-slate/15 text-slate/70 hover:bg-page transition-colors">
                         <ChevronLeft size={18} />
                     </button>
@@ -362,6 +596,12 @@ export default function AdminAppointmentsPage() {
             {error && (
                 <div className="bg-danger-tint text-danger rounded-xl px-4 py-3 mb-4">{error}</div>
             )}
+            {dragError && (
+                <div className="bg-danger-tint text-danger rounded-xl px-4 py-3 mb-4 flex items-center justify-between">
+                    <span>{dragError}</span>
+                    <button onClick={() => setDragError('')} className="text-danger/60 hover:text-danger text-sm">✕</button>
+                </div>
+            )}
 
             {loading ? (
                 <div className="bg-white border border-slate/10 rounded-2xl py-16 text-center text-slate/50">Φόρτωση...</div>
@@ -370,7 +610,34 @@ export default function AdminAppointmentsPage() {
             )}
 
             {selected && (
-                <AppointmentDetailModal appointment={selected} onClose={() => setSelected(null)} />
+                <AppointmentDetailModal
+                    appointment={selected}
+                    onClose={() => setSelected(null)}
+                    onChanged={() => { setSelected(null); loadAppointments(); }}
+                    onReschedule={(appt) => { setSelected(null); setRescheduleTarget(appt); }}
+                />
+            )}
+
+            {addModal && (
+                <AddAppointmentModal
+                    initialDate={addModal.date}
+                    initialTime={addModal.time}
+                    initialEmployeeId={addModal.employeeId}
+                    employees={employees}
+                    granularity={granularity}
+                    onClose={() => setAddModal(null)}
+                    onCreated={() => { setAddModal(null); loadAppointments(); }}
+                />
+            )}
+
+            {rescheduleTarget && (
+                <RescheduleModal
+                    appointment={rescheduleTarget}
+                    employees={employees}
+                    granularity={granularity}
+                    onClose={() => setRescheduleTarget(null)}
+                    onRescheduled={() => { setRescheduleTarget(null); loadAppointments(); }}
+                />
             )}
         </div>
     );

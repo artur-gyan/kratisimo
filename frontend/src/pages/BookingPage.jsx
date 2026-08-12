@@ -95,14 +95,33 @@ export default function BookingPage() {
             setSlotsError('');
             setSelectedSlot(null); // reset επιλογή αν άλλαξε η μέρα
             try {
-                // durationMinutes = RAW άθροισμα (το backend κάνει ceiling).
-                const params = new URLSearchParams({
-                    employeeId: selectedEmployee.id,
-                    date: selectedDate,
-                    durationMinutes: totalDuration,
-                });
-                const data = await api.get(`/availability?${params}`);
-                setSlots(data);
+                if (selectedEmployee.id === null) {
+                    // «Οποιοσδήποτε»: κάλεσε availability για ΚΑΘΕ υπάλληλο της λίστας,
+                    // ένωσε τα slots (unique + sorted). Η ΠΡΟΒΟΛΗ είναι η ένωση (D121)·
+                    // η ΑΝΑΘΕΣΗ γίνεται least-loaded στο backend POST (D18).
+                    const perEmployee = await Promise.all(
+                        employees.map((emp) => {
+                            const params = new URLSearchParams({
+                                employeeId: emp.id,
+                                date: selectedDate,
+                                durationMinutes: totalDuration,
+                            });
+                            return api.get(`/availability?${params}`).catch(() => []);
+                        })
+                    );
+                    const merged = [...new Set(perEmployee.flat())].sort();
+                    setSlots(merged);
+                } else {
+                    // Συγκεκριμένος υπάλληλος: μία κλήση.
+                    // durationMinutes = RAW άθροισμα (το backend κάνει ceiling).
+                    const params = new URLSearchParams({
+                        employeeId: selectedEmployee.id,
+                        date: selectedDate,
+                        durationMinutes: totalDuration,
+                    });
+                    const data = await api.get(`/availability?${params}`);
+                    setSlots(data);
+                }
             } catch (err) {
                 setSlotsError(err.message);
             } finally {
@@ -315,6 +334,29 @@ export default function BookingPage() {
                     {/* Λίστα υπαλλήλων */}
                     {!employeesLoading && employees.length > 0 && (
                         <div className="space-y-2">
+                            {/* Κάρτα «Οποιοσδήποτε διαθέσιμος» — id:null → backend least-loaded (D18) */}
+                            <div
+                                onClick={() => setSelectedEmployee({ id: null, fullName: 'Οποιοσδήποτε διαθέσιμος' })}
+                                className={`w-full text-left flex items-center gap-4 p-4 rounded-xl border transition-colors cursor-pointer ${
+                                    selectedEmployee?.id === null
+                                        ? 'border-blue bg-blue-tint'
+                                        : 'border-slate/10 bg-white hover:border-slate/25'
+                                }`}
+                            >
+                                <div className="w-11 h-11 rounded-full bg-blue-tint text-blue font-semibold flex items-center justify-center flex-shrink-0">
+                                    ✨
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-slate font-medium">Οποιοσδήποτε διαθέσιμος</p>
+                                    <p className="text-slate/50 text-sm mt-0.5">Επιλέγουμε τον πιο κατάλληλο για εσάς</p>
+                                </div>
+                                {selectedEmployee?.id === null && (
+                                    <span className="w-6 h-6 rounded-full bg-blue text-white flex items-center justify-center flex-shrink-0">
+                                        <Check size={16} />
+                                    </span>
+                                )}
+                            </div>
+
                             {employees.map((emp) => (
                                 // ΠΡΟΣΟΧΗ: div, ΟΧΙ button. Μέσα υπάρχει το κουμπί
                                 // «Προβολή προφίλ» — button μέσα σε button = invalid HTML.

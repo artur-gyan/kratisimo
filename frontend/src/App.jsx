@@ -14,6 +14,7 @@ import AdminSettingsPage from './pages/AdminSettingsPage';
 import AdminEmployeesPage from './pages/AdminEmployeesPage';
 
 
+
 function App() {
     return (
         <AuthProvider>
@@ -71,6 +72,7 @@ function App() {
                             </ProtectedRoute>
                         }
                     />
+
                     <Route
                         path="/admin/employees"
                         element={
