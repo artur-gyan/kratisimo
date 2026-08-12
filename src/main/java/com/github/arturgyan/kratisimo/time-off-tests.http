@@ -1,0 +1,217 @@
+### =====================================================================
+###  KRATISIMO - Time-off (adeies) tests (Chat 13, #3)
+###
+###  RUN: pata to prasino play dipla se kathe ### block, ME TH SEIRA.
+###  [0] login = ADMIN (to time-off einai admin-only).
+###  To krisimo: [5] apodeiknyei oti adeia -> mplokarei to booking.
+### =====================================================================
+
+@host = http://localhost:8080
+@employeeId = 1
+
+### [0] LOGIN as ADMIN (time-off = admin-only)
+# @name login
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@kratisimo.com",
+  "password": "admin123"
+}
+
+> {%
+    client.test("Admin login OK (200)", function () {
+        client.assert(response.status === 200, "Login apetyxe: " + response.status);
+    });
+    var t = response.body.token || response.body.accessToken;
+    client.assert(t, "Den vrethike token.");
+    client.global.set("auth_token", t);
+%}
+
+
+### [1] CREATE time off - egkyri mellontiki adeia -> 201
+### Dialekse mellontikes meres OPOU o employee 1 DEN exei radevou.
+### An pareis 409 "appointments during this period" -> allakse tis meres se pio makrina.
+POST {{host}}/api/admin/employees/{{employeeId}}/time-off
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "startDate": "2026-09-14",
+  "endDate": "2026-09-16",
+  "reason": "Vacation"
+}
+
+> {%
+    client.test("Create time off -> 201", function () {
+        client.assert(response.status === 201,
+            "Perimena 201, pira " + response.status +
+            " - body: " + JSON.stringify(response.body));
+    });
+    if (response.status === 201) {
+        client.global.set("timeoff_id", response.body.id);
+        client.log("Created time off id = " + response.body.id);
+    }
+%}
+
+
+### [2] LIST time off -> 200, periexei tin adeia pou molis ftiaksame
+GET {{host}}/api/admin/employees/{{employeeId}}/time-off
+Authorization: Bearer {{auth_token}}
+
+> {%
+    client.test("List time off -> 200", function () {
+        client.assert(response.status === 200, "Perimena 200, pira " + response.status);
+    });
+    client.assert(response.body.length >= 1, "I lista einai adeia - i dimiourgia apetyxe?");
+    client.log("Sinolo adeion: " + response.body.length);
+%}
+
+
+### [3] PAST time off -> 400 (den epitrepetai adeia sto parelthon)
+POST {{host}}/api/admin/employees/{{employeeId}}/time-off
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "startDate": "2020-01-01",
+  "endDate": "2020-01-05",
+  "reason": "Past"
+}
+
+> {%
+    client.test("Past time off -> 400", function () {
+        client.assert(response.status === 400,
+            "Perimena 400 (parelthon), pira " + response.status);
+    });
+    client.log("Minima: " + (response.body.message || JSON.stringify(response.body)));
+%}
+
+
+### [4] endDate < startDate -> 400
+POST {{host}}/api/admin/employees/{{employeeId}}/time-off
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "startDate": "2026-09-20",
+  "endDate": "2026-09-18",
+  "reason": "Backwards"
+}
+
+> {%
+    client.test("endDate < startDate -> 400", function () {
+        client.assert(response.status === 400,
+            "Perimena 400, pira " + response.status);
+    });
+%}
+
+
+### [5] * KRISIMO: adeia -> mplokarei booking
+### Prota kleinoume adeia gia mia mera, meta prospathoume booking ekeini ti mera.
+### Vima 5a: valise adeia gia 2026-09-21 (Deutera).
+POST {{host}}/api/admin/employees/{{employeeId}}/time-off
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "startDate": "2026-09-21",
+  "endDate": "2026-09-21",
+  "reason": "Block test"
+}
+
+> {%
+    client.test("5a: create block-test time off -> 201", function () {
+        client.assert(response.status === 201,
+            "Perimena 201, pira " + response.status +
+            " - an 409, o employee exei idi radevou 2026-09-21, allakse mera se olo to [5].");
+    });
+%}
+
+
+### [5b] Prospatheia booking sto slot pou tora kalyptei i adeia.
+### Prota pairnoume ta diathesima slots - PREPEI na einai KENA (i na min periexoun tin ora tis adeias).
+### 2026-09-21 einai Deutera - o employee 1 nomika douleuei, alla exei adeia.
+GET {{host}}/api/availability?employeeId={{employeeId}}&date=2026-09-21&durationMinutes=30
+Authorization: Bearer {{auth_token}}
+
+> {%
+    client.test("5b: availability tin imera tis adeias -> kena i xoris slots", function () {
+        client.assert(response.status === 200, "Perimena 200, pira " + response.status);
+        var slots = Array.isArray(response.body) ? response.body : (response.body.slots || []);
+        client.log("Diathesima slots tin imera tis adeias: " + slots.length);
+        client.assert(slots.length === 0,
+            "APOTYXIA: yparxoun " + slots.length + " slots enw o employee einai se adeia! " +
+            "To busyIntervals den diavazei tin adeia?");
+    });
+%}
+### ! AN to path/params diaferoun (404/500), des ton AvailabilityController kai steile ton.
+
+
+### [6] LOGIN as CUSTOMER (gia to security test)
+# @name loginCustomer
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "kostas@example.com",
+  "password": "customer123"
+}
+
+> {%
+    client.test("Customer login OK", function () {
+        client.assert(response.status === 200, "Login apetyxe: " + response.status);
+    });
+    var t = response.body.token || response.body.accessToken;
+    client.global.set("customer_token", t);
+%}
+
+
+### [7] SECURITY: customer prospathei create time off -> 403
+POST {{host}}/api/admin/employees/{{employeeId}}/time-off
+Content-Type: application/json
+Authorization: Bearer {{customer_token}}
+
+{
+  "startDate": "2026-10-01",
+  "endDate": "2026-10-02",
+  "reason": "Should fail"
+}
+
+> {%
+    client.test("Customer -> 403 (admin-only)", function () {
+        client.assert(response.status === 403,
+            "Perimena 403, pira " + response.status);
+    });
+%}
+
+
+### [8] DELETE time off (to prwto pou ftiaksame) -> 204
+DELETE {{host}}/api/admin/employees/{{employeeId}}/time-off/{{timeoff_id}}
+Authorization: Bearer {{auth_token}}
+
+> {%
+    client.test("Delete time off -> 204", function () {
+        client.assert(response.status === 204,
+            "Perimena 204, pira " + response.status);
+    });
+%}
+
+
+### [9] reason > 200 chars -> 400 (@Size validation)
+POST {{host}}/api/admin/employees/{{employeeId}}/time-off
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "startDate": "2026-11-01",
+  "endDate": "2026-11-02",
+  "reason": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+}
+
+> {%
+    client.test("reason > 200 -> 400", function () {
+        client.assert(response.status === 400,
+            "Perimena 400 (@Size), pira " + response.status);
+    });
+%}
