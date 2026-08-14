@@ -1,27 +1,91 @@
-import { useState } from 'react';
-import { X } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { X, Upload, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 
-// mode: 'create' | 'edit'.
-// employee = υπάρχων (edit)· services = λίστα ενεργών υπηρεσιών για επιλογή.
+// Resize + compress εικόνας client-side → base64 data URI.
+// Max 400px (μεγαλύτερη διάσταση), JPEG quality 0.8 → ~30-50KB.
+// Γίνεται ΕΔΩ (όχι backend) ώστε η βάση να μένει ελαφριά (D163).
+function resizeToBase64(file, maxSize = 400, quality = 0.8) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                let { width, height } = img;
+                if (width > height && width > maxSize) {
+                    height = (height * maxSize) / width;
+                    width = maxSize;
+                } else if (height > maxSize) {
+                    width = (width * maxSize) / height;
+                    height = maxSize;
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                resolve(canvas.toDataURL('image/jpeg', quality));
+            };
+            img.onerror = reject;
+            img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+// Avatar preview — φωτο (base64/URL) ή αρχικά.
+function AvatarPreview({ photoUrl, name }) {
+    if (photoUrl) {
+        return <img src={photoUrl} alt="" className="w-20 h-20 rounded-full object-cover" />;
+    }
+    const initials = (name || '?')
+        .split(' ').filter((w) => w.length > 0).slice(0, 2)
+        .map((w) => w[0]).join('').toUpperCase() || '?';
+    return (
+        <div className="w-20 h-20 rounded-full bg-blue-tint text-blue font-semibold text-2xl flex items-center justify-center">
+            {initials}
+        </div>
+    );
+}
+
 export default function EmployeeModal({ mode, employee, services, onClose, onSaved }) {
     const [fullName, setFullName] = useState(employee?.fullName || '');
     const [email, setEmail] = useState(employee?.email || '');
     const [password, setPassword] = useState('');
     const [phone, setPhone] = useState(employee?.phone || '');
     const [bio, setBio] = useState(employee?.bio || '');
-    // Οι ήδη επιλεγμένες υπηρεσίες (edit): Set από τα ids.
+    const [photoUrl, setPhotoUrl] = useState(employee?.photoUrl || null);
     const [selectedIds, setSelectedIds] = useState(
         new Set(employee?.services?.map((s) => s.id) || [])
     );
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+    const fileInputRef = useRef(null);
 
     function toggleService(id) {
         const next = new Set(selectedIds);
         if (next.has(id)) next.delete(id);
         else next.add(id);
         setSelectedIds(next);
+    }
+
+    async function handlePhotoSelect(e) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            setError('Επίλεξε αρχείο εικόνας.');
+            return;
+        }
+        try {
+            const base64 = await resizeToBase64(file);
+            setPhotoUrl(base64);
+            setError('');
+        } catch {
+            setError('Δεν ήταν δυνατή η επεξεργασία της εικόνας.');
+        }
+        // Reset ώστε να μπορεί να ξαναεπιλεγεί το ίδιο αρχείο.
+        e.target.value = '';
     }
 
     async function handleSave() {
@@ -43,7 +107,7 @@ export default function EmployeeModal({ mode, employee, services, onClose, onSav
                     password,
                     phone: phone.trim() || null,
                     bio: bio.trim() || null,
-                    photoUrl: null,
+                    photoUrl: photoUrl || null,
                     serviceIds,
                 });
             } else {
@@ -51,13 +115,12 @@ export default function EmployeeModal({ mode, employee, services, onClose, onSav
                     fullName: fullName.trim(),
                     phone: phone.trim() || null,
                     bio: bio.trim() || null,
-                    photoUrl: employee.photoUrl || null,
+                    photoUrl: photoUrl || null,
                     serviceIds,
                 });
             }
             onSaved();
         } catch (err) {
-            // 409 = duplicate email (backend EmailAlreadyExistsException, D127).
             setError(err.status === 409 ? 'Υπάρχει ήδη χρήστης με αυτό το email.' : err.message);
             setSaving(false);
         }
@@ -80,6 +143,38 @@ export default function EmployeeModal({ mode, employee, services, onClose, onSav
                         <div className="bg-danger-tint text-danger rounded-lg px-3 py-2 text-sm">{error}</div>
                     )}
 
+                    {/* ── ΦΩΤΟΓΡΑΦΙΑ ── */}
+                    <div className="flex items-center gap-4">
+                        <AvatarPreview photoUrl={photoUrl} name={fullName} />
+                        <div className="flex flex-col gap-2">
+                            <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="inline-flex items-center gap-2 text-sm border border-slate/15 rounded-lg px-3 py-2 text-slate hover:bg-page transition-colors"
+                            >
+                                <Upload size={15} />
+                                {photoUrl ? 'Αλλαγή φωτο' : 'Ανέβασμα φωτο'}
+                            </button>
+                            {photoUrl && (
+                                <button
+                                    type="button"
+                                    onClick={() => setPhotoUrl(null)}
+                                    className="inline-flex items-center gap-2 text-sm text-danger hover:text-danger/80 transition-colors"
+                                >
+                                    <Trash2 size={15} />
+                                    Αφαίρεση
+                                </button>
+                            )}
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*"
+                                onChange={handlePhotoSelect}
+                                className="hidden"
+                            />
+                        </div>
+                    </div>
+
                     <div>
                         <label className="block text-slate/60 text-xs mb-1.5">Ονοματεπώνυμο</label>
                         <input
@@ -91,7 +186,6 @@ export default function EmployeeModal({ mode, employee, services, onClose, onSav
                         />
                     </div>
 
-                    {/* Email + password ΜΟΝΟ στο create (D99: δεν αλλάζουν στο update) */}
                     {mode === 'create' && (
                         <>
                             <div>
@@ -150,7 +244,6 @@ export default function EmployeeModal({ mode, employee, services, onClose, onSav
                         />
                     </div>
 
-                    {/* Υπηρεσίες — checkboxes */}
                     <div>
                         <label className="block text-slate/60 text-xs mb-2">Υπηρεσίες που προσφέρει</label>
                         <div className="border border-slate/15 rounded-lg max-h-48 overflow-y-auto divide-y divide-slate/5">

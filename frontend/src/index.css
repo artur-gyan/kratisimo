@@ -2,13 +2,12 @@
 
 @theme {
     /* Χρώματα — design tokens (single source of truth) */
-    --color-slate: #0F172A;
+    --color-slate: #1E293B;
     --color-blue: #2563EB;
-    --color-blue-soft: #60A5FA;
-    --color-blue-tint: #EFF4FF;
+    --color-blue-soft: #3B82F6;
+    --color-blue-tint: #EFF6FF;
     --color-page: #F8FAFC;
 
-    /* Status χρώματα */
     --color-success: #0F6E56;
     --color-success-tint: #E1F5EE;
     --color-danger: #A32D2D;

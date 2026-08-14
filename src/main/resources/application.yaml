@@ -16,6 +16,9 @@ spring:
         format_sql: true       # ίδιο με πριν (D-όχι, απλώς για ευανάγνωστα logs)
     open-in-view: false        # D22 — μην το χάσεις, ήταν στο αρχικό yaml σου
 
+  frontend:
+    origin: ${FRONTEND_ORIGIN:http://localhost:5173}
+
   flyway:
     enabled: true              # ρητά ON — το Flyway τρέχει τα migrations στο startup
     baseline-on-migrate: false # καθαρή βάση, τα πάντα από V1 (Δρόμος Β)
@@ -29,7 +32,7 @@ spring:
         smtp:
           auth: true                # ο server απαιτεί username/password
           starttls:
-            enable: true            # κρυπτογράφηση της σύνδεσης (STARTTLS)
+            enable: true      # κρυπτογράφηση της σύνδεσης (STARTTLS)
 jwt:
   secret: ${JWT_SECRET}
   expiration-ms: 86400000

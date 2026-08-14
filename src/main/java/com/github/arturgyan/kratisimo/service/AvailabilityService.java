@@ -5,7 +5,6 @@ import com.github.arturgyan.kratisimo.entity.BusinessSettings;
 import com.github.arturgyan.kratisimo.entity.WorkingHours;
 import com.github.arturgyan.kratisimo.enums.AppointmentStatus;
 import com.github.arturgyan.kratisimo.repository.AppointmentRepository;
-import com.github.arturgyan.kratisimo.repository.BusinessSettingsRepository;
 import com.github.arturgyan.kratisimo.repository.TimeOffRepository;
 import com.github.arturgyan.kratisimo.repository.WorkingHoursRepository;
 import org.springframework.stereotype.Service;
@@ -27,64 +26,42 @@ import java.util.stream.Stream;
 public class AvailabilityService {
 
     private final WorkingHoursRepository workingHoursRepository;
-    private final BusinessSettingsRepository businessSettingsRepository;
     private final AppointmentRepository appointmentRepository;
     private final TimeOffRepository timeOffRepository;
+    private final SettingsProvider settingsProvider;
 
     public AvailabilityService(WorkingHoursRepository workingHoursRepository,
-                               BusinessSettingsRepository businessSettingsRepository,
                                AppointmentRepository appointmentRepository,
-                               TimeOffRepository timeOffRepository) {
+                               TimeOffRepository timeOffRepository,
+                               SettingsProvider settingsProvider) {
         this.workingHoursRepository = workingHoursRepository;
-        this.businessSettingsRepository = businessSettingsRepository;
         this.appointmentRepository = appointmentRepository;
         this.timeOffRepository = timeOffRepository;
+        this.settingsProvider = settingsProvider;
     }
 
     // ═══════════════════════════════════════════════════════════════════
     //  ΔΗΜΟΣΙΟ API
     // ═══════════════════════════════════════════════════════════════════
-    /**
-     * Public entry point για το frontend: δέχεται RAW συνολική διάρκεια
-     * (άθροισμα durations υπηρεσιών), κάνει το ceiling στο granularity ΕΔΩ,
-     * και delegate-άρει στην υπάρχουσα engine μέθοδο.
-     *
-     * Γιατί εδώ κι όχι στο frontend: το granularity είναι επιχειρησιακή
-     * ρύθμιση (D15/D40) που ζει στη βάση. Ο client δεν πρέπει ούτε να ξέρει
-     * ότι υπάρχει — στέλνει "συνολικά X λεπτά", το backend ξέρει πώς να το
-     * στρογγυλοποιήσει. Ο υπολογισμός ζει εκεί που ζει η γνώση (ίδια αρχή D67).
-     *
-     * Ο engine (findAvailableSlots με effective) μένει ΑΝΕΠΑΦΟΣ (D64):
-     * η νέα μέθοδος είναι thin wrapper που κάνει ΜΟΝΟ το ceiling.
-     */
+
     public List<Instant> findAvailableSlotsRaw(Long employeeId, LocalDate date,
                                                int rawDurationMinutes) {
-        int granularity = loadSettings().getSlotGranularityMinutes();
+        int granularity = settingsProvider.get().getSlotGranularityMinutes();
 
-        // Ceiling στο επόμενο πολλαπλάσιο του granularity (D16).
-        // Ίδιος τύπος με τον BookingService στάδιο 3: (a + b - 1) / b * b.
         int effectiveDuration =
                 ((rawDurationMinutes + granularity - 1) / granularity) * granularity;
 
         return findAvailableSlots(employeeId, date, effectiveDuration);
     }
-    /**
-     * Όλα τα διαθέσιμα start times ενός υπαλλήλου για μια μέρα, δεδομένης της
-     * effective διάρκειας. Ενώνει τα 6 στάδια του engine.
-     *
-     * Το BusinessSettings φορτώνεται ΜΙΑ φορά εδώ· το zone περνιέται ως
-     * παράμετρος στα στάδια που το χρειάζονται — καμία επανάληψη query.
-     *
-     * Η effectiveDuration υπολογίζεται ΕΞΩ (booking service, ceiling D16).
-     */
+
     public List<Instant> findAvailableSlots(Long employeeId, LocalDate date,
                                             int effectiveDurationMinutes) {
-        BusinessSettings settings = loadSettings();
+        BusinessSettings settings = settingsProvider.get();
         ZoneId zone = ZoneId.of(settings.getTimezone());
         int granularity = settings.getSlotGranularityMinutes();
         int leadTime = settings.getBookingLeadTimeMinutes();
 
-        List<Interval> free = freeIntervals(employeeId, date, zone);   // Στάδια 1-3
+        List<Interval> free = freeIntervals(employeeId, date, zone);
 
         List<Instant> candidateStarts = free.stream()
                 .flatMap(interval -> {
@@ -93,71 +70,47 @@ public class AvailabilityService {
                 })
                 .toList();
 
-        return filterPast(candidateStarts, leadTime);   // Στάδιο 6
+        return filterPast(candidateStarts, leadTime);
     }
-    /**
-     * Επικυρώνει ότι το ραντεβού [startsAt, endsAt) χωράει ΟΛΟΚΛΗΡΟ μέσα σε ΜΙΑ
-     * βάρδια του υπαλλήλου εκείνη τη μέρα. Πετάει IllegalArgumentException (→400)
-     * αν καμία βάρδια δεν το περικλείει.
-     *
-     * Γιατί ΕΔΩ κι όχι στο AvailabilityService του engine: το enforcement είναι
-     * ξεχωριστό από την προβολή (D64-D70 δείχνουν slots· αυτό απαγορεύει booking).
-     * Ίδια σχέση UX↔enforcement με το IDOR (D52): ο engine "δεν δείχνει" εκτός-
-     * ωραρίου slots, αλλά raw POST τα παρακάμπτει. Αυτή η μέθοδος κλείνει το κενό.
-     *
-     * public + reusable: το θα καλέσει ΚΑΙ το admin add appointment (#3).
-     */
-    public void validateWithinWorkingHours(Long employeeId, Instant startsAt, Instant endsAt) {
-        BusinessSettings settings = loadSettings();
-        ZoneId zone = ZoneId.of(settings.getTimezone());
 
-        // ── Ποια ΤΟΠΙΚΗ μέρα; ──
-        // Το startsAt είναι Instant (UTC). Το DayOfWeek/LocalDate πρέπει να βγει σε
-        // ΤΟΠΙΚΗ ώρα (D67): "Δευτέρα 00:30 Αθήνα" = "Κυριακή 22:30 UTC" — αν πάρεις
-        // τη μέρα από το raw Instant, ψάχνεις λάθος βάρδιες.
+    public void validateWithinWorkingHours(Long employeeId, Instant startsAt, Instant endsAt) {
+        ZoneId zone = settingsProvider.getZone();
+
+        if (!hasShiftOnDay(employeeId, startsAt, zone)) {
+            throw new IllegalArgumentException(
+                    "The employee does not work on the selected day");
+        }
+        if (!isWithinWorkingHours(employeeId, startsAt, endsAt, zone)) {
+            throw new IllegalArgumentException(
+                    "The selected time is outside the employee's working hours");
+        }
+    }
+
+    public boolean isWithinWorkingHours(Long employeeId, Instant startsAt,
+                                        Instant endsAt, ZoneId zone) {
         ZonedDateTime localStart = startsAt.atZone(zone);
         DayOfWeek day = localStart.getDayOfWeek();
         LocalDate date = localStart.toLocalDate();
 
-        // ── Φόρτωσε τις βάρδιες εκείνης της μέρας (D34: 0..N βάρδιες) ──
         List<WorkingHours> shifts =
                 workingHoursRepository.findByEmployeeIdAndDayOfWeek(employeeId, day);
 
-        // Καμία βάρδια = ο υπάλληλος δεν δουλεύει αυτή τη μέρα (π.χ. Κυριακή) → 400.
-        if (shifts.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "The employee does not work on the selected day");
-        }
-
-        // ── "Περικλείεται από ΜΙΑ βάρδια;" ──
-        // Δρόμος Α: βάρδια LocalTime → Instant (ίδιο toInstant με τον engine), μετά
-        // σύγκριση Instant↔Instant. ΠΟΤΕ Instant vs LocalTime κατευθείαν (D67).
-        //
-        // Έλεγχος περίκλεισης: shift.start ≤ appt.start ΚΑΙ appt.end ≤ shift.end.
-        // Το ραντεβού ΔΕΝ επιτρέπεται να γεφυρώνει δύο βάρδιες ή να ξεχειλίζει σε
-        // διάλειμμα (D34: Νίκος 09-13 + 17-21· ραντεβού 12:30-13:30 απορρίπτεται).
-        boolean fitsInAShift = shifts.stream().anyMatch(shift -> {
+        return shifts.stream().anyMatch(shift -> {
             Instant shiftStart = toInstant(date, shift.getStartTime(), zone);
             Instant shiftEnd = toInstant(date, shift.getEndTime(), zone);
-
-            // !start.isBefore(shiftStart)  ==  start >= shiftStart
-            // !end.isAfter(shiftEnd)       ==  end   <= shiftEnd
             return !startsAt.isBefore(shiftStart) && !endsAt.isAfter(shiftEnd);
         });
+    }
 
-        if (!fitsInAShift) {
-            throw new IllegalArgumentException(
-                    "The selected time is outside the employee's working hours");
-        }
+    private boolean hasShiftOnDay(Long employeeId, Instant startsAt, ZoneId zone) {
+        DayOfWeek day = startsAt.atZone(zone).getDayOfWeek();
+        return !workingHoursRepository.findByEmployeeIdAndDayOfWeek(employeeId, day).isEmpty();
     }
 
     // ═══════════════════════════════════════════════════════════════════
     //  ΣΤΑΔΙΑ 1-3: free = working − busy
     // ═══════════════════════════════════════════════════════════════════
 
-    /**
-     * ΣΤΑΔΙΑ 1-3 μαζί: free intervals = working − busy, ανά βάρδια.
-     */
     List<Interval> freeIntervals(Long employeeId, LocalDate date, ZoneId zone) {
         List<Interval> working = workingIntervals(employeeId, date, zone);
         List<Interval> busy = busyIntervals(employeeId, date, zone);
@@ -167,9 +120,6 @@ public class AvailabilityService {
                 .toList();
     }
 
-    /**
-     * ΣΤΑΔΙΟ 1: working intervals της μέρας (βάρδιες D34), LocalTime → Instant (D35).
-     */
     List<Interval> workingIntervals(Long employeeId, LocalDate date, ZoneId zone) {
         DayOfWeek day = date.getDayOfWeek();
 
@@ -183,10 +133,6 @@ public class AvailabilityService {
                 .toList();
     }
 
-    /**
-     * ΣΤΑΔΙΟ 2: busy intervals = Appointments (που blocksTime, D50) ∪ TimeOff,
-     * ισοπεδωμένα σε μία λίστα Interval.
-     */
     List<Interval> busyIntervals(Long employeeId, LocalDate date, ZoneId zone) {
         Interval dayRange = dayRange(date, zone);
 
@@ -210,10 +156,6 @@ public class AvailabilityService {
                 .toList();
     }
 
-    /**
-     * ΣΤΑΔΙΟ 3: αφαιρεί όλα τα busy από ΕΝΑ working interval (cursor scan).
-     * Επιστρέφει τα free κομμάτια (0, 1 ή περισσότερα).
-     */
     private List<Interval> subtractBusy(Interval working, List<Interval> busyList) {
         List<Interval> free = new ArrayList<>();
         Instant cursor = working.start();
@@ -224,21 +166,21 @@ public class AvailabilityService {
 
         for (Interval busy : sortedBusy) {
             if (!busy.end().isAfter(cursor)) {
-                continue;   // busy ήδη πίσω από τον cursor
+                continue;
             }
             if (!busy.start().isBefore(working.end())) {
-                break;      // busy πέρα από το working — τέλος
+                break;
             }
             if (busy.start().isAfter(cursor)) {
-                free.add(new Interval(cursor, busy.start()));   // κενό πριν το busy
+                free.add(new Interval(cursor, busy.start()));
             }
             if (busy.end().isAfter(cursor)) {
-                cursor = busy.end();   // προχώρα μπροστά
+                cursor = busy.end();
             }
         }
 
         if (cursor.isBefore(working.end())) {
-            free.add(new Interval(cursor, working.end()));   // ουρά
+            free.add(new Interval(cursor, working.end()));
         }
 
         return free;
@@ -248,10 +190,6 @@ public class AvailabilityService {
     //  ΣΤΑΔΙΑ 4-6: slot generation & φιλτραρίσματα
     // ═══════════════════════════════════════════════════════════════════
 
-    /**
-     * ΣΤΑΔΙΟ 4: candidate starts μέσα σε ΕΝΑ free interval, ανά granularity,
-     * με πρώτο start στρογγυλεμένο ΠΑΝΩ στο πλέγμα (D15).
-     */
     private List<Instant> generateStarts(Interval free, int granularityMinutes, ZoneId zone) {
         List<Instant> starts = new ArrayList<>();
         Duration step = Duration.ofMinutes(granularityMinutes);
@@ -266,10 +204,6 @@ public class AvailabilityService {
         return starts;
     }
 
-    /**
-     * ΣΤΑΔΙΟ 5: κρατά μόνο starts όπου η υπηρεσία χωράει ολόκληρη μέσα στο
-     * free interval — start + effectiveDuration ≤ free.end() (Παγίδα Β).
-     */
     private List<Instant> filterByCapacity(List<Instant> starts, Interval free,
                                            int effectiveDurationMinutes) {
         Duration duration = Duration.ofMinutes(effectiveDurationMinutes);
@@ -279,9 +213,6 @@ public class AvailabilityService {
                 .toList();
     }
 
-    /**
-     * ΣΤΑΔΙΟ 6: πετά starts πιο κοντά από bookingLeadTimeMinutes στο «τώρα» (D40).
-     */
     private List<Instant> filterPast(List<Instant> starts, int leadTimeMinutes) {
         Instant earliest = Instant.now().plus(Duration.ofMinutes(leadTimeMinutes));
 
@@ -294,10 +225,6 @@ public class AvailabilityService {
     //  ΒΟΗΘΗΤΙΚΕΣ
     // ═══════════════════════════════════════════════════════════════════
 
-    /**
-     * Στρογγυλοποιεί ΠΑΝΩ στο επόμενο πολλαπλάσιο του granularity, σε ΤΟΠΙΚΗ
-     * ώρα (το πλέγμα είναι τοπική επιχειρησιακή έννοια, όχι UTC).
-     */
     private Instant ceilToGranularity(Instant instant, int granularityMinutes, ZoneId zone) {
         ZonedDateTime zdt = instant.atZone(zone);
 
@@ -312,29 +239,13 @@ public class AvailabilityService {
                 .toInstant();
     }
 
-    /**
-     * Γέφυρα LocalTime → Instant μέσω ζώνης (D35). Η ζώνη χειρίζεται DST.
-     */
     private Instant toInstant(LocalDate date, LocalTime time, ZoneId zone) {
         return date.atTime(time).atZone(zone).toInstant();
     }
 
-    /**
-     * Μια τοπική μέρα ως διάστημα Instant [00:00, 24:00) της ζώνης.
-     */
     private Interval dayRange(LocalDate date, ZoneId zone) {
         Instant dayStart = date.atStartOfDay(zone).toInstant();
         Instant dayEnd = date.plusDays(1).atStartOfDay(zone).toInstant();
         return new Interval(dayStart, dayEnd);
-    }
-
-    /**
-     * Φορτώνει το BusinessSettings singleton (D39) — ΜΙΑ κλήση ανά
-     * findAvailableSlots. Το zone/granularity/leadTime βγαίνουν από εδώ.
-     */
-    private BusinessSettings loadSettings() {
-        return businessSettingsRepository.findById(BusinessSettings.SINGLETON_ID)
-                .orElseThrow(() -> new IllegalStateException(
-                        "BusinessSettings singleton δεν βρέθηκε — το setup δεν έχει τρέξει;"));
     }
 }

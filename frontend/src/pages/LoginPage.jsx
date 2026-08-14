@@ -18,7 +18,13 @@ function LoginPage() {
     // useEffect γιατί το navigate είναι side effect (όχι κατά το render).
     useEffect(() => {
         if (user) {
-            navigate('/', { replace: true });
+            // Αν εκκρεμεί κράτηση, μη μας στείλει στην αρχική — το handleSubmit
+            // (ή το BookingPage restore) θα μας πάει στο /book.
+            if (sessionStorage.getItem('pendingBooking')) {
+                navigate('/book', { replace: true });
+            } else {
+                navigate('/', { replace: true });
+            }
         }
     }, [user, navigate]);
 
@@ -29,7 +35,10 @@ function LoginPage() {
         try {
             const me = await login(email, password);
 
-            if (me.roles.includes('ADMIN')) {
+            // Guest flow: εκκρεμεί κράτηση → γύρνα στο /book (D51).
+            if (sessionStorage.getItem('pendingBooking')) {
+                navigate('/book');
+            } else if (me.roles.includes('ADMIN')) {
                 navigate('/admin/dashboard');
             } else {
                 navigate('/');

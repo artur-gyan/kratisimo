@@ -25,7 +25,7 @@ public class EmployeeProfile {
     @Column(length = 500)
     private String bio;
 
-    @Column(name = "photo_url", length = 255)
+    @Column(name = "photo_url", columnDefinition = "TEXT")
     private String photoUrl;
 
     @Column(nullable = false)

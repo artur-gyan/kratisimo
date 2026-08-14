@@ -1,10 +1,13 @@
 package com.github.arturgyan.kratisimo.listener;
 
 import com.github.arturgyan.kratisimo.dto.AppointmentBookedEvent;
+import com.github.arturgyan.kratisimo.dto.AppointmentCancelledEvent;
+import com.github.arturgyan.kratisimo.dto.AppointmentCompletedEvent;
 import com.github.arturgyan.kratisimo.entity.BusinessSettings;
-import com.github.arturgyan.kratisimo.repository.BusinessSettingsRepository;
+import com.github.arturgyan.kratisimo.service.SettingsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.MailException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -17,42 +20,33 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
-/**
- * Ακούει AppointmentBookedEvent και στέλνει confirmation email.
- *
- * ΞΕΧΩΡΙΣΤΟ bean (όχι μέθοδος στον BookingService): το @Async δουλεύει μέσω proxy —
- * κλήση από άλλο bean περνάει από το proxy → async ενεργό. Self-invocation θα το ακύρωνε (D79).
- */
 @Component
 public class AppointmentEmailListener {
 
     private static final Logger log = LoggerFactory.getLogger(AppointmentEmailListener.class);
 
-    private final JavaMailSender mailSender;                        // bean από spring.mail.* autoconfig
-    private final BusinessSettingsRepository businessSettingsRepository;
+    private final JavaMailSender mailSender;
+    private final SettingsProvider settingsProvider;
+    private final String frontendOrigin;
 
-    // Instant → τοπική ώρα μέσω business timezone (D4/D35).
+    // Ελληνικό locale → "Δευτέρα, 3 Μαρτίου 2026, 14:30".
+    private static final Locale GREEK = Locale.forLanguageTag("el");
     private static final DateTimeFormatter FORMATTER =
-            DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy 'at' HH:mm", Locale.ENGLISH);
+            DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", GREEK);
 
     public AppointmentEmailListener(JavaMailSender mailSender,
-                                    BusinessSettingsRepository businessSettingsRepository) {
+                                    SettingsProvider settingsProvider,
+                                    @Value("${frontend.origin:http://localhost:5173}") String frontendOrigin) {
         this.mailSender = mailSender;
-        this.businessSettingsRepository = businessSettingsRepository;
+        this.settingsProvider = settingsProvider;
+        this.frontendOrigin = frontendOrigin;
     }
 
-    /**
-     * @TransactionalEventListener(AFTER_COMMIT): τρέχει ΜΟΝΟ αν το booking transaction
-     *   έκανε επιτυχημένο commit. Rollback → event πετιέται, κανένα email.
-     * @Async: τρέχει σε ξεχωριστό thread → ο χρήστης δεν περιμένει το SMTP.
-     */
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onAppointmentBooked(AppointmentBookedEvent event) {
         try {
-            BusinessSettings settings = businessSettingsRepository
-                    .findById(BusinessSettings.SINGLETON_ID)
-                    .orElseThrow(() -> new IllegalStateException("BusinessSettings not found"));
+            BusinessSettings settings = settingsProvider.get();
             ZoneId zone = ZoneId.of(settings.getTimezone());
 
             String formattedTime = event.startsAt().atZone(zone).format(FORMATTER);
@@ -60,41 +54,107 @@ public class AppointmentEmailListener {
 
             SimpleMailMessage message = new SimpleMailMessage();
             message.setTo(event.customerEmail());
-            message.setSubject("Appointment Confirmation — " + settings.getName());
-            message.setText(buildBody(event, formattedTime, services, settings.getName()));
+            message.setSubject("Επιβεβαίωση ραντεβού — " + settings.getName());
+            message.setText("""
+                    Αγαπητέ/ή %s,
 
-            mailSender.send(message);  // ← πραγματική SMTP σύνδεση εδώ
+                    Το ραντεβού σας επιβεβαιώθηκε.
 
+                    Υπηρεσίες: %s
+                    Υπάλληλος: %s
+                    Πότε: %s
+                    Σύνολο: €%.2f
+
+                    Ευχαριστούμε που επιλέξατε %s.
+                    """.formatted(
+                    event.customerName(), services, event.employeeName(),
+                    formattedTime, event.totalPrice(), settings.getName()));
+
+            mailSender.send(message);
             log.info("Confirmation email sent to {}", event.customerEmail());
 
         } catch (MailException e) {
-            // Το booking έχει ΗΔΗ γίνει commit — δεν το πειράζουμε. Email = best-effort.
-            // Δεν ξαναπετάμε (async thread, κανείς δεν το πιάνει). Σε production: retry/dead-letter.
             log.error("Failed to send confirmation email to {}: {}",
                     event.customerEmail(), e.getMessage());
         }
     }
 
-    private String buildBody(AppointmentBookedEvent event, String formattedTime,
-                             String services, String businessName) {
-        return """
-                Dear %s,
+    @Async
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onAppointmentCancelled(AppointmentCancelledEvent event) {
+        try {
+            BusinessSettings settings = settingsProvider.get();
+            ZoneId zone = ZoneId.of(settings.getTimezone());
 
-                Your appointment has been confirmed.
+            String formattedTime = event.startsAt().atZone(zone).format(FORMATTER);
+            String services = String.join(", ", event.serviceNames());
 
-                Services: %s
-                Staff: %s
-                When: %s
-                Total: €%.2f
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setTo(event.customerEmail());
+            message.setSubject("Ακύρωση ραντεβού — " + settings.getName());
+            message.setText("""
+                    Αγαπητέ/ή %s,
 
-                Thank you for choosing %s.
-                """.formatted(
-                event.customerName(),
-                services,
-                event.employeeName(),
-                formattedTime,
-                event.totalPrice(),
-                businessName
-        );
+                    Το ραντεβού σας ακυρώθηκε.
+
+                    Υπηρεσίες: %s
+                    Υπάλληλος: %s
+                    Πότε: %s
+
+                    Αν έχετε απορίες, επικοινωνήστε μαζί μας.
+
+                    %s
+                    """.formatted(
+                    event.customerName(), services, event.employeeName(),
+                    formattedTime, settings.getName()));
+
+            mailSender.send(message);
+            log.info("Cancellation email sent to {}", event.customerEmail());
+
+        } catch (MailException e) {
+            log.error("Failed to send cancellation email to {}: {}",
+                    event.customerEmail(), e.getMessage());
+        }
+    }
+
+    @Async
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onAppointmentCompleted(AppointmentCompletedEvent event) {
+        try {
+            BusinessSettings settings = settingsProvider.get();
+            ZoneId zone = ZoneId.of(settings.getTimezone());
+
+            String formattedTime = event.startsAt().atZone(zone).format(FORMATTER);
+            String services = String.join(", ", event.serviceNames());
+            String reviewLink = frontendOrigin + "/appointments";
+
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setTo(event.customerEmail());
+            message.setSubject("Ευχαριστούμε για την επίσκεψή σας — " + settings.getName());
+            message.setText("""
+                    Αγαπητέ/ή %s,
+
+                    Ευχαριστούμε για την επίσκεψή σας! Ελπίζουμε να μείνατε ευχαριστημένος/η.
+
+                    Υπηρεσίες: %s
+                    Υπάλληλος: %s
+                    Πότε: %s
+
+                    Θα χαρούμε να ακούσουμε τη γνώμη σας. Αφήστε μια αξιολόγηση εδώ:
+                    %s
+
+                    Σας περιμένουμε ξανά,
+                    %s
+                    """.formatted(
+                    event.customerName(), services, event.employeeName(),
+                    formattedTime, reviewLink, settings.getName()));
+
+            mailSender.send(message);
+            log.info("Completion email sent to {}", event.customerEmail());
+
+        } catch (MailException e) {
+            log.error("Failed to send completion email to {}: {}",
+                    event.customerEmail(), e.getMessage());
+        }
     }
 }

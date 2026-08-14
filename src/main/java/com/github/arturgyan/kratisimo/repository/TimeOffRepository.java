@@ -15,4 +15,7 @@ public interface TimeOffRepository extends JpaRepository<TimeOff, Long> {
     List<TimeOff> findOverlapping(@Param("employeeId") Long employeeId,
                                   @Param("dayStart") Instant dayStart,
                                   @Param("dayEnd") Instant dayEnd);
+
+    // Νέο: όλες οι άδειες ενός υπαλλήλου, ταξινομημένες (για το list()) — D48 pattern.
+    List<TimeOff> findByEmployeeIdOrderByStartsAtAsc(Long employeeId);
 }

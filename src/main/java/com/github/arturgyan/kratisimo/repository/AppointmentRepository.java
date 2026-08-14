@@ -30,6 +30,20 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
                               @Param("endsAt") Instant endsAt,
                               @Param("statuses") List<AppointmentStatus> statuses);
 
+    // Query 2β — overlap check ΕΞΑΙΡΩΝΤΑΣ ένα appointment (reschedule, D145).
+    // Το ίδιο το ραντεβού που μετακινείς υπάρχει ήδη στη βάση· χωρίς το
+    // a.id <> :excludeId θα «συγκρουόταν με τον εαυτό του» → κάθε reschedule 409.
+    @Query("SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END " +
+            "FROM Appointment a WHERE a.employee.id = :employeeId " +
+            "AND a.id <> :excludeId " +
+            "AND a.startsAt < :endsAt AND a.endsAt > :startsAt " +
+            "AND a.status IN :statuses")
+    boolean existsOverlappingExcluding(@Param("employeeId") Long employeeId,
+                                       @Param("excludeId") Long excludeId,
+                                       @Param("startsAt") Instant startsAt,
+                                       @Param("endsAt") Instant endsAt,
+                                       @Param("statuses") List<AppointmentStatus> statuses);
+
     // Query 3 — «τα ραντεβού μου» (customer view), νεότερα πρώτα
     List<Appointment> findByCustomerIdOrderByStartsAtDesc(Long customerId);
 
@@ -46,5 +60,15 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
         ORDER BY a.startsAt ASC
         """)
     List<Appointment> findByStartsAtRange(@Param("from") Instant from,
+                                          @Param("to") Instant to);
+
+    @Query("""
+        SELECT a FROM Appointment a
+        WHERE a.status = :status
+          AND a.startsAt >= :from AND a.startsAt < :to
+        ORDER BY a.startsAt ASC
+        """)
+    List<Appointment> findByStatusInRange(@Param("status") AppointmentStatus status,
+                                          @Param("from") Instant from,
                                           @Param("to") Instant to);
 }

@@ -21,7 +21,11 @@ function RegisterPage() {
     // Ήδη logged in → φύγε στην αρχική (ίδια λογική με LoginPage).
     useEffect(() => {
         if (user) {
-            navigate('/', { replace: true });
+            if (sessionStorage.getItem('pendingBooking')) {
+                navigate('/book', { replace: true });
+            } else {
+                navigate('/', { replace: true });
+            }
         }
     }, [user, navigate]);
 
@@ -60,9 +64,12 @@ function RegisterPage() {
                 password,
             });
 
-            // Νέος χρήστης = πάντα CUSTOMER → αρχική. (Το me.roles υπάρχει αν
-            // θελήσουμε role-based redirect αργότερα — εδώ δεν χρειάζεται.)
-            navigate('/');
+            // Guest flow: εκκρεμεί κράτηση → γύρνα στο /book (D51).
+            if (sessionStorage.getItem('pendingBooking')) {
+                navigate('/book');
+            } else {
+                navigate('/');
+            }
         } catch (err) {
             // Δείχνουμε το message του backend ErrorResponse (D71). Αν το
             // duplicate email δίνει καθαρό μήνυμα, ο χρήστης το βλέπει άμεσα.

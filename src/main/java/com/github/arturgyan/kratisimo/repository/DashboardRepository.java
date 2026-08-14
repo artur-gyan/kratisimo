@@ -27,9 +27,11 @@ public interface DashboardRepository extends JpaRepository<Appointment, Long> {
 
     // ---------- 2. Δημοφιλείς υπηρεσίες (μέσω items — group ανά service) ----------
     // Πάει μέσω AppointmentItem γιατί μετράμε ΑΝΑ ΥΠΗΡΕΣΙΑ (child-level aggregation)
+    // ---------- 2. Δημοφιλείς υπηρεσίες (μέσω items — group ανά service) ----------
     @Query("""
             SELECT s.id AS serviceId,
                    s.name AS serviceName,
+                   s.price AS unitPrice,
                    COUNT(i) AS timesBooked,
                    COALESCE(SUM(i.priceSnapshot), 0) AS revenue
             FROM AppointmentItem i
@@ -38,7 +40,7 @@ public interface DashboardRepository extends JpaRepository<Appointment, Long> {
             WHERE a.status = :status
               AND a.startsAt >= :from
               AND a.startsAt < :to
-            GROUP BY s.id, s.name
+            GROUP BY s.id, s.name, s.price
             ORDER BY COUNT(i) DESC
             """)
     List<PopularServiceProjection> popularServices(@Param("status") AppointmentStatus status,
@@ -82,6 +84,7 @@ public interface DashboardRepository extends JpaRepository<Appointment, Long> {
     interface PopularServiceProjection {
         Long getServiceId();
         String getServiceName();
+        BigDecimal getUnitPrice();
         long getTimesBooked();
         BigDecimal getRevenue();
     }

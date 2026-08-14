@@ -97,9 +97,17 @@ export default function AdminEmployeesPage() {
                 <div className="bg-white border border-slate/10 rounded-2xl overflow-hidden divide-y divide-slate/5">
                     {activeEmployees.map((emp) => (
                         <div key={emp.employeeProfileId} className="flex items-center gap-4 px-5 py-4">
-                            <div className="w-11 h-11 rounded-full bg-blue-tint text-blue flex items-center justify-center flex-shrink-0 font-semibold">
-                                {emp.fullName.charAt(0)}
-                            </div>
+                            {emp.photoUrl ? (
+                                <img
+                                    src={emp.photoUrl}
+                                    alt={emp.fullName}
+                                    className="w-11 h-11 rounded-full object-cover flex-shrink-0"
+                                />
+                            ) : (
+                                <div className="w-11 h-11 rounded-full bg-blue-tint text-blue flex items-center justify-center flex-shrink-0 font-semibold">
+                                    {emp.fullName.charAt(0)}
+                                </div>
+                            )}
 
                             <div className="flex-1 min-w-0">
                                 <p className="text-slate text-sm font-medium truncate">{emp.fullName}</p>
@@ -164,9 +172,17 @@ export default function AdminEmployeesPage() {
                         <div className="mt-4 bg-white border border-slate/10 rounded-2xl overflow-hidden divide-y divide-slate/5">
                             {archivedEmployees.map((emp) => (
                                 <div key={emp.employeeProfileId} className="flex items-center gap-4 px-5 py-4">
-                                    <div className="w-11 h-11 rounded-full bg-page text-slate/50 flex items-center justify-center flex-shrink-0 font-semibold">
-                                        {emp.fullName.charAt(0)}
-                                    </div>
+                                    {emp.photoUrl ? (
+                                        <img
+                                            src={emp.photoUrl}
+                                            alt={emp.fullName}
+                                            className="w-11 h-11 rounded-full object-cover flex-shrink-0 opacity-60"
+                                        />
+                                    ) : (
+                                        <div className="w-11 h-11 rounded-full bg-page text-slate/50 flex items-center justify-center flex-shrink-0 font-semibold">
+                                            {emp.fullName.charAt(0)}
+                                        </div>
+                                    )}
                                     <div className="flex-1 min-w-0">
                                         <p className="text-slate/60 text-sm font-medium truncate">{emp.fullName}</p>
                                         <p className="text-slate/40 text-xs truncate">{emp.email}</p>

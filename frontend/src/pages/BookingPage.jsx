@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { Check, Clock, Star, X } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+
 
 export default function BookingPage() {
     // ─── WIZARD STATE ───
@@ -47,6 +49,8 @@ export default function BookingPage() {
     const [confirmedBooking, setConfirmedBooking] = useState(null); // η επιτυχής απάντηση
 
     const navigate = useNavigate();
+    const { user } = useAuth();
+    const [searchParams] = useSearchParams();
     // Φόρτωση υπηρεσιών στο mount.
     useEffect(() => {
         async function loadServices() {
@@ -61,6 +65,48 @@ export default function BookingPage() {
         }
         loadServices();
     }, []);
+
+    // ─── PRESELECT υπηρεσίας από URL (?service=ID) — landing deep-link ───
+    // Τρέχει ΟΤΑΝ φορτωθούν οι υπηρεσίες (χρειάζεται τη λίστα για να βρει το object).
+    // ΔΕΝ εφαρμόζεται αν υπάρχει pendingBooking (guest restore προηγείται).
+    useEffect(() => {
+        if (services.length === 0) return;
+        if (sessionStorage.getItem('pendingBooking')) return;
+
+        const serviceId = searchParams.get('service');
+        if (!serviceId) return;
+
+        const service = services.find((s) => String(s.id) === serviceId);
+        if (service) {
+            setSelectedServices([service]);  // βήμα 1, τσεκαρισμένη — ο χρήστης μπορεί να προσθέσει κι άλλες
+        }
+    }, [services, searchParams]);
+
+    // ─── GUEST FLOW: restore επιλογών μετά από login/register (D51) ───
+    // Αν ο ανώνυμος πάτησε "Επιβεβαίωση" στο βήμα 4, οι επιλογές του σώθηκαν
+    // σε sessionStorage πριν το redirect στο /login. Τώρα που γύρισε (logged in),
+    // τις ξαναφορτώνουμε και τον πάμε ΚΑΤΕΥΘΕΙΑΝ στο βήμα 4 (προ-συμπληρωμένο).
+    useEffect(() => {
+        const raw = sessionStorage.getItem('pendingBooking');
+        if (!raw) return;
+
+        // Restore ΜΟΝΟ αν είναι πλέον logged in (αλλιώς περιμένουμε το login).
+        if (!user) return;
+
+        try {
+            const pending = JSON.parse(raw);
+            setSelectedServices(pending.selectedServices || []);
+            setSelectedEmployee(pending.selectedEmployee || null);
+            setSelectedDate(pending.selectedDate || '');
+            setSelectedSlot(pending.selectedSlot || null);
+            setStep(4);
+        } catch {
+            // corrupt data — αγνόησε
+        } finally {
+            // Καθάρισε: το διαβάσαμε, δεν το χρειαζόμαστε άλλο (Απόφαση Γ).
+            sessionStorage.removeItem('pendingBooking');
+        }
+    }, [user]);
 
     // Φόρτωσε υπαλλήλους ΟΤΑΝ φτάνουμε στο βήμα 2.
     // Dependency [step]: τρέχει κάθε φορά που αλλάζει το step.
@@ -144,8 +190,22 @@ export default function BookingPage() {
     }
     // Το τελικό POST. Χειρίζεται τρεις εκβάσεις: επιτυχία / 409 / άλλο.
     async function handleBooking() {
+        // ─── GUEST GATE (D51): ανώνυμος → σώσε επιλογές + πήγαινε login ───
+        if (!user) {
+            const pending = {
+                selectedServices,
+                selectedEmployee,
+                selectedDate,
+                selectedSlot,
+            };
+            sessionStorage.setItem('pendingBooking', JSON.stringify(pending));
+            navigate('/login');
+            return;
+        }
+
         setBooking(true);
         setBookingError('');
+
         try {
             const payload = {
                 serviceIds: selectedServices.map((s) => s.id),  // μόνο ids στο backend
@@ -154,6 +214,7 @@ export default function BookingPage() {
             };
             const response = await api.post('/appointments', payload);
             setConfirmedBooking(response);  // επιτυχία → δείξε επιβεβαίωση
+            sessionStorage.removeItem('pendingBooking');  // σιγουριά (Απόφαση Γ)
         } catch (err) {
             // 409 = το slot πιάστηκε στο μεσοδιάστημα (D84).
             // Το backend στέλνει 409 με μήνυμα· το api.js το πετάει ως error.
@@ -586,7 +647,11 @@ export default function BookingPage() {
                                     disabled={booking}
                                     className="bg-blue text-white rounded-xl px-8 py-3 font-medium hover:bg-blue-soft transition-colors disabled:opacity-50"
                                 >
-                                    {booking ? 'Κλείσιμο...' : 'Επιβεβαίωση κράτησης'}
+                                    {booking
+                                        ? 'Κλείσιμο...'
+                                        : user
+                                            ? 'Επιβεβαίωση κράτησης'
+                                            : 'Σύνδεση & επιβεβαίωση'}
                                 </button>
                             </div>
                         </div>

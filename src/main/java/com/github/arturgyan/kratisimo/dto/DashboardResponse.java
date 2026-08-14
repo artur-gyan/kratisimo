@@ -18,6 +18,7 @@ public record DashboardResponse(
     public record PopularService(
             Long serviceId,
             String serviceName,
+            BigDecimal unitPrice,
             long timesBooked,
             BigDecimal revenue
     ) {}

@@ -1,0 +1,343 @@
+### =====================================================================
+###  KRATISIMO - Admin Working Hours Management Tests
+###
+###  Tests the NEW /api/admin/employees/{id}/working-hours endpoints.
+###  RUN with Admin credentials (NOT regular customer).
+###
+###  Prerequisites: Backend running (mvn spring-boot:run), DataSeeder executed.
+### =====================================================================
+
+@host = http://localhost:8080
+
+
+### [0] LOGIN as ADMIN (email: admin@example.com, password: admin123)
+# @name adminLogin
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@example.com",
+  "password": "admin123"
+}
+
+> {%
+    client.test("Admin login OK (200)", function () {
+        client.assert(response.status === 200, "Login failed: " + response.status);
+    });
+    var token = response.body.token;
+    client.assert(token, "No token in response");
+    client.global.set("admin_token", token);
+    client.log("Admin token obtained");
+%}
+
+
+### [1] GET working hours for employee #1 (should have seeded data)
+GET {{host}}/api/admin/employees/1/working-hours
+Authorization: Bearer {{admin_token}}
+
+> {%
+    client.test("GET working hours OK (200)", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+    client.test("Response has employeeId", function () {
+        client.assert(response.body.employeeId === 1, "employeeId mismatch");
+    });
+    client.test("Response has shifts array", function () {
+        client.assert(Array.isArray(response.body.shifts), "shifts is not an array");
+    });
+    client.log("Current shifts: " + JSON.stringify(response.body.shifts, null, 2));
+%}
+
+
+### [2] REPLACE working hours - VALID (Monday-Friday 09:00-17:00, single shift/day)
+PUT {{host}}/api/admin/employees/1/working-hours
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "shifts": [
+    { "dayOfWeek": "MONDAY", "startTime": "09:00:00", "endTime": "17:00:00" },
+    { "dayOfWeek": "TUESDAY", "startTime": "09:00:00", "endTime": "17:00:00" },
+    { "dayOfWeek": "WEDNESDAY", "startTime": "09:00:00", "endTime": "17:00:00" },
+    { "dayOfWeek": "THURSDAY", "startTime": "09:00:00", "endTime": "17:00:00" },
+    { "dayOfWeek": "FRIDAY", "startTime": "09:00:00", "endTime": "17:00:00" }
+  ]
+}
+
+> {%
+    client.test("PUT valid schedule OK (200)", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+    client.test("Response has 5 shifts", function () {
+        client.assert(response.body.shifts.length === 5, "Expected 5 shifts, got " + response.body.shifts.length);
+    });
+    client.test("Shifts are sorted (MONDAY first)", function () {
+        client.assert(response.body.shifts[0].dayOfWeek === "MONDAY", "First shift is not MONDAY");
+    });
+    client.log("New schedule saved: " + response.body.shifts.length + " shifts");
+%}
+
+
+### [3] REPLACE with split shifts (morning + afternoon with gap) - VALID
+PUT {{host}}/api/admin/employees/1/working-hours
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "shifts": [
+    { "dayOfWeek": "MONDAY", "startTime": "09:00:00", "endTime": "13:00:00" },
+    { "dayOfWeek": "MONDAY", "startTime": "17:00:00", "endTime": "21:00:00" },
+    { "dayOfWeek": "TUESDAY", "startTime": "09:00:00", "endTime": "13:00:00" },
+    { "dayOfWeek": "TUESDAY", "startTime": "17:00:00", "endTime": "21:00:00" }
+  ]
+}
+
+> {%
+    client.test("Split shifts OK (200)", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+    client.test("Has 4 shifts (2 per day)", function () {
+        client.assert(response.body.shifts.length === 4, "Expected 4 shifts, got " + response.body.shifts.length);
+    });
+    client.test("Monday shifts are sorted (09:00 before 17:00)", function () {
+        var mondayShifts = response.body.shifts.filter(s => s.dayOfWeek === "MONDAY");
+        client.assert(mondayShifts[0].startTime === "09:00:00", "First Monday shift not 09:00");
+        client.assert(mondayShifts[1].startTime === "17:00:00", "Second Monday shift not 17:00");
+    });
+    client.log("Split shifts saved successfully");
+%}
+
+
+### [4] VALIDATION ERROR - overlapping shifts on same day (should reject with 400)
+PUT {{host}}/api/admin/employees/1/working-hours
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "shifts": [
+    { "dayOfWeek": "MONDAY", "startTime": "09:00:00", "endTime": "14:00:00" },
+    { "dayOfWeek": "MONDAY", "startTime": "12:00:00", "endTime": "18:00:00" }
+  ]
+}
+
+> {%
+    client.test("Overlapping shifts rejected (400)", function () {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+    client.test("Error message mentions overlap", function () {
+        var msg = response.body.message || JSON.stringify(response.body);
+        client.assert(msg.toLowerCase().indexOf("overlap") !== -1, "Error message should mention 'overlap'");
+    });
+    client.log("Error: " + (response.body.message || JSON.stringify(response.body)));
+%}
+
+
+### [5] VALIDATION ERROR - startTime >= endTime (should reject with 400)
+PUT {{host}}/api/admin/employees/1/working-hours
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "shifts": [
+    { "dayOfWeek": "MONDAY", "startTime": "17:00:00", "endTime": "09:00:00" }
+  ]
+}
+
+> {%
+    client.test("Invalid time range rejected (400)", function () {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+    client.test("Error message mentions start/end time", function () {
+        var msg = response.body.message || JSON.stringify(response.body);
+        client.assert(
+            msg.toLowerCase().indexOf("start") !== -1 || msg.toLowerCase().indexOf("before") !== -1,
+            "Error message should mention time validation"
+        );
+    });
+    client.log("Error: " + (response.body.message || JSON.stringify(response.body)));
+%}
+
+
+### [6] VALIDATION ERROR - empty shifts array (should reject with 400)
+PUT {{host}}/api/admin/employees/1/working-hours
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "shifts": []
+}
+
+> {%
+    client.test("Empty shifts rejected (400)", function () {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+    client.test("Error mentions required shifts", function () {
+        var msg = response.body.message || JSON.stringify(response.body);
+        client.assert(
+            msg.toLowerCase().indexOf("shift") !== -1 || msg.toLowerCase().indexOf("empty") !== -1,
+            "Error should mention missing shifts"
+        );
+    });
+    client.log("Error: " + (response.body.message || JSON.stringify(response.body)));
+%}
+
+
+### [7] VALIDATION ERROR - missing required field (dayOfWeek null)
+PUT {{host}}/api/admin/employees/1/working-hours
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "shifts": [
+    { "dayOfWeek": null, "startTime": "09:00:00", "endTime": "17:00:00" }
+  ]
+}
+
+> {%
+    client.test("Null dayOfWeek rejected (400)", function () {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+    client.log("Error: " + (response.body.message || JSON.stringify(response.body)));
+%}
+
+
+### [8] ERROR - non-existent employee (should return 400)
+PUT {{host}}/api/admin/employees/99999/working-hours
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "shifts": [
+    { "dayOfWeek": "MONDAY", "startTime": "09:00:00", "endTime": "17:00:00" }
+  ]
+}
+
+> {%
+    client.test("Non-existent employee rejected (400)", function () {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+    client.test("Error mentions employee not found", function () {
+        var msg = response.body.message || JSON.stringify(response.body);
+        client.assert(
+            msg.toLowerCase().indexOf("employee") !== -1 && msg.toLowerCase().indexOf("not found") !== -1,
+            "Error should say employee not found"
+        );
+    });
+    client.log("Error: " + (response.body.message || JSON.stringify(response.body)));
+%}
+
+
+### [9] SECURITY - regular user cannot access (should return 403)
+# First login as regular customer
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "kostas@example.com",
+  "password": "customer123"
+}
+
+> {%
+    client.global.set("customer_token", response.body.token);
+%}
+
+###
+GET {{host}}/api/admin/employees/1/working-hours
+Authorization: Bearer {{customer_token}}
+
+> {%
+    client.test("Customer access forbidden (403)", function () {
+        client.assert(response.status === 403, "Expected 403, got " + response.status);
+    });
+    client.log("Security check passed - customer cannot access admin endpoint");
+%}
+
+
+### [10] IDEMPOTENCY - same PUT twice should produce same result
+PUT {{host}}/api/admin/employees/1/working-hours
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "shifts": [
+    { "dayOfWeek": "MONDAY", "startTime": "10:00:00", "endTime": "18:00:00" },
+    { "dayOfWeek": "FRIDAY", "startTime": "10:00:00", "endTime": "18:00:00" }
+  ]
+}
+
+> {%
+    client.test("First PUT OK (200)", function () {
+        client.assert(response.status === 200);
+    });
+    var firstShiftCount = response.body.shifts.length;
+    client.global.set("first_shift_count", firstShiftCount);
+%}
+
+###
+PUT {{host}}/api/admin/employees/1/working-hours
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "shifts": [
+    { "dayOfWeek": "MONDAY", "startTime": "10:00:00", "endTime": "18:00:00" },
+    { "dayOfWeek": "FRIDAY", "startTime": "10:00:00", "endTime": "18:00:00" }
+  ]
+}
+
+> {%
+    client.test("Second PUT OK (idempotent)", function () {
+        client.assert(response.status === 200);
+        client.assert(response.body.shifts.length === 2, "Shift count changed after second PUT");
+    });
+    client.log("Idempotency verified - same result on repeated PUT");
+%}
+
+
+### [11] EDGE CASE - touching boundaries (13:00-13:00) should be rejected
+PUT {{host}}/api/admin/employees/1/working-hours
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "shifts": [
+    { "dayOfWeek": "MONDAY", "startTime": "13:00:00", "endTime": "13:00:00" }
+  ]
+}
+
+> {%
+    client.test("Zero-duration shift rejected (400)", function () {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+    client.log("Zero-duration validation passed");
+%}
+
+
+### [12] EDGE CASE - back-to-back shifts (13:00-14:00 touching 14:00-18:00) should be VALID
+PUT {{host}}/api/admin/employees/1/working-hours
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "shifts": [
+    { "dayOfWeek": "MONDAY", "startTime": "09:00:00", "endTime": "13:00:00" },
+    { "dayOfWeek": "MONDAY", "startTime": "13:00:00", "endTime": "18:00:00" }
+  ]
+}
+
+> {%
+    client.test("Back-to-back shifts allowed (200)", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+    client.test("Both shifts saved", function () {
+        var monday = response.body.shifts.filter(s => s.dayOfWeek === "MONDAY");
+        client.assert(monday.length === 2, "Expected 2 Monday shifts");
+    });
+    client.log("Back-to-back (touching) shifts validated correctly");
+%}
+
+
+### =====================================================================
+### END - All tests complete
+### Expected: 11 green checks (login + 10 functional tests + 1 security + 1 idempotency)
+### =====================================================================
