@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { X, Search, User, UserPlus } from 'lucide-react';
+import { X, Search, User, UserPlus, Gift } from 'lucide-react';
 import { catalogService } from '../services/catalogService';
 import { customerSearchService } from '../services/customerSearchService';
 import { adminAppointmentService } from '../services/adminAppointmentService';
+import { adminCustomerService } from '../services/adminCustomerService';
 
 // Στρογγυλοποιεί "HH:mm" στο κοντινότερο πολλαπλάσιο του granularity.
 // π.χ. granularity=15: 12:12 → 12:15, 12:07 → 12:00.
@@ -24,6 +25,10 @@ function buildInstant(dateStr, timeStr) {
     return new Date(y, m - 1, d, h, min).toISOString();
 }
 
+function euro(value) {
+    return value.toFixed(2) + ' €';
+}
+
 export default function AddAppointmentModal({
                                                 initialDate,
                                                 initialTime,
@@ -39,6 +44,9 @@ export default function AddAppointmentModal({
     const [results, setResults] = useState([]);
     const [selectedCustomer, setSelectedCustomer] = useState(null);
     const [searching, setSearching] = useState(false);
+
+    // ΝΕΟ (2f-2): πρόοδος επιβράβευσης του επιλεγμένου πελάτη (LoyaltyResponse ή null).
+    const [customerLoyalty, setCustomerLoyalty] = useState(null);
 
     const [guestName, setGuestName] = useState('');
     const [guestPhone, setGuestPhone] = useState('');
@@ -74,6 +82,34 @@ export default function AddAppointmentModal({
         }, 300);
         return () => clearTimeout(t);
     }, [query, customerMode]);
+
+    // ΝΕΟ (2f-2): μόλις επιλεγεί εγγεγραμμένος πελάτης → φέρε την πρόοδό του.
+    // Το `ignore` προστατεύει από race condition: αν ο admin αλλάξει γρήγορα πελάτη,
+    // η απάντηση του ΠΡΟΗΓΟΥΜΕΝΟΥ request αγνοείται (cleanup του effect).
+    // Αν αποτύχει → απλώς δεν δείχνουμε τίποτα (η επιβράβευση είναι επιπλέον πληροφορία).
+    useEffect(() => {
+        if (!selectedCustomer) return;
+        let ignore = false;
+        adminCustomerService.getLoyalty(selectedCustomer.id)
+            .then((data) => { if (!ignore) setCustomerLoyalty(data); })
+            .catch(() => { if (!ignore) setCustomerLoyalty(null); });
+        return () => { ignore = true; };
+    }, [selectedCustomer]);
+
+    // Επιλογή/αλλαγή πελάτη: καθαρίζουμε ΑΜΕΣΩΣ το παλιό loyalty,
+    // ώστε να μη φανεί ούτε στιγμιαία η έκπτωση του προηγούμενου πελάτη.
+    function selectCustomer(c) {
+        setCustomerLoyalty(null);
+        setSelectedCustomer(c);
+        setResults([]);
+    }
+
+    function clearCustomer() {
+        setCustomerLoyalty(null);
+        setSelectedCustomer(null);
+        setQuery('');
+        setResults([]);
+    }
 
     function toggleService(id) {
         setSelectedServiceIds((prev) =>
@@ -131,6 +167,19 @@ export default function AddAppointmentModal({
     const activeEmployees = employees.filter((e) => e.active);
     const stepSeconds = (granularity || 15) * 60;  // <input type="time"> step = δευτερόλεπτα
 
+    // ΝΕΟ (2f-2): πρόβλεψη τιμής. Ο server υπολογίζει την τελική τιμή (D76) —
+    // εδώ ίδια φόρμουλα μόνο για εμφάνιση (στρογγυλοποίηση σε λεπτά του ευρώ).
+    const subtotal = services
+        .filter((s) => selectedServiceIds.includes(s.id))
+        .reduce((sum, s) => sum + Number(s.price), 0);
+    // ΑΛΛΑΓΗ (D173): το % του ΔΩΡΟΥ (nextRewardPercent), όχι του τρέχοντος κανόνα.
+    const showLoyalty = customerMode === 'registered' && selectedCustomer && customerLoyalty?.enabled;
+    const rewardPercent = showLoyalty && customerLoyalty.availableRewards > 0
+        ? customerLoyalty.nextRewardPercent
+        : 0;
+    const previewDiscount = Math.round(subtotal * rewardPercent) / 100;
+    const previewTotal = subtotal - previewDiscount;
+
     return (
         <div
             className="fixed inset-0 bg-slate/40 flex items-center justify-center p-4 z-50"
@@ -181,7 +230,7 @@ export default function AddAppointmentModal({
                                             )}
                                         </div>
                                         <button
-                                            onClick={() => { setSelectedCustomer(null); setQuery(''); setResults([]); }}
+                                            onClick={clearCustomer}
                                             className="text-blue text-sm font-medium hover:underline"
                                         >
                                             Αλλαγή
@@ -205,7 +254,7 @@ export default function AddAppointmentModal({
                                                 {results.map((c) => (
                                                     <button
                                                         key={c.id}
-                                                        onClick={() => { setSelectedCustomer(c); setResults([]); }}
+                                                        onClick={() => selectCustomer(c)}
                                                         className="w-full text-left px-3 py-2 hover:bg-page transition-colors"
                                                     >
                                                         <div className="text-sm text-slate">{c.fullName}</div>
@@ -218,6 +267,26 @@ export default function AddAppointmentModal({
                                             <div className="text-xs text-slate/50 mt-1 px-1">Κανένα αποτέλεσμα.</div>
                                         )}
                                     </div>
+                                )}
+
+                                {/* ΝΕΟ (2f-2): κατάσταση επιβράβευσης του επιλεγμένου πελάτη */}
+                                {showLoyalty && (
+                                    customerLoyalty.availableRewards > 0 ? (
+                                        <div className="flex items-start gap-2 bg-success-tint text-success rounded-lg px-3 py-2 mt-2 text-sm">
+                                            <Gift size={16} className="mt-0.5 flex-shrink-0" />
+                                            <span>
+                                                Ο πελάτης έχει διαθέσιμη έκπτωση <strong>{customerLoyalty.nextRewardPercent}%</strong> —
+                                                θα εφαρμοστεί αυτόματα σε αυτό το ραντεβού.
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <p className="flex items-center gap-1.5 text-xs text-slate/50 mt-2 px-1">
+                                            <Gift size={13} />
+                                            Επιβράβευση: {customerLoyalty.progress}/{customerLoyalty.visitsRequired} ·
+                                            ακόμη {customerLoyalty.visitsRequired - customerLoyalty.progress} για
+                                            έκπτωση {customerLoyalty.discountPercent}%
+                                        </p>
+                                    )
                                 )}
                             </div>
                         ) : (
@@ -260,6 +329,28 @@ export default function AddAppointmentModal({
                                 </label>
                             ))}
                         </div>
+
+                        {/* ΝΕΟ (2f-2): σύνοψη τιμής (πρόβλεψη) */}
+                        {selectedServiceIds.length > 0 && (
+                            <div className="bg-page rounded-lg px-3 py-2 mt-2 text-sm space-y-1">
+                                {rewardPercent > 0 && (
+                                    <>
+                                        <div className="flex justify-between text-slate/60">
+                                            <span>Υποσύνολο</span>
+                                            <span>{euro(subtotal)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-success">
+                                            <span>Επιβράβευση −{rewardPercent}%</span>
+                                            <span>−{euro(previewDiscount)}</span>
+                                        </div>
+                                    </>
+                                )}
+                                <div className="flex justify-between text-slate font-semibold">
+                                    <span>Σύνολο</span>
+                                    <span>{euro(previewTotal)}</span>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* --- Υπάλληλος --- */}

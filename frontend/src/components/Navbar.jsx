@@ -22,17 +22,23 @@ export default function Navbar() {
     const isPureCustomer = user && !isAdmin && !isEmployee;
     const firstName = user?.fullName.split(' ')[0];
 
-    // ── Links ανά ρόλο, οριζόμενα ΜΙΑ φορά (όχι διπλά desktop/mobile) ──
-    // { to, label, primary? } — primary = το CTA κουμπί (Κράτηση/Σύνδεση).
+    // Δημόσιες σελίδες — κοινές για guest + customer.
+    const publicLinks = [
+        { to: '/services', label: 'Υπηρεσίες' },
+        { to: '/team', label: 'Ομάδα' },
+        { to: '/reviews', label: 'Κριτικές' },
+    ];
+
+    // ── Links ανά ρόλο, οριζόμενα ΜΙΑ φορά (D161) ──
     let links = [];
     if (!user) {
         links = [
-            { to: '/', label: 'Αρχική' },
+            ...publicLinks,
             { to: '/login', label: 'Σύνδεση', primary: true },
         ];
     } else if (isPureCustomer) {
         links = [
-            { to: '/', label: 'Αρχική' },
+            ...publicLinks,
             { to: '/appointments', label: 'Τα ραντεβού μου' },
             { to: '/book', label: 'Κράτηση', primary: true },
         ];
@@ -58,14 +64,13 @@ export default function Navbar() {
 
     const isActive = (to) => location.pathname === to;
 
-    // Ένα link — desktop ή mobile (διαφορετικό styling μέσω `mobile` flag).
     function NavItem({ link, mobile }) {
         if (link.primary) {
             return (
                 <Link
                     to={link.to}
                     onClick={() => setOpen(false)}
-                    className={`bg-blue text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-soft transition-colors ${mobile ? 'block text-center' : ''}`}
+                    className={`bg-blue text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-soft transition-colors whitespace-nowrap ${mobile ? 'block text-center' : ''}`}
                 >
                     {link.label}
                 </Link>
@@ -75,7 +80,7 @@ export default function Navbar() {
             <Link
                 to={link.to}
                 onClick={() => setOpen(false)}
-                className={`text-sm font-medium px-3 py-2 rounded-lg transition-colors ${
+                className={`text-sm font-medium px-3 py-2 rounded-lg transition-colors whitespace-nowrap ${
                     isActive(link.to)
                         ? 'text-blue bg-blue-tint'
                         : 'text-slate/70 hover:bg-page hover:text-slate'
@@ -88,19 +93,19 @@ export default function Navbar() {
 
     return (
         <nav className="bg-white border-b border-slate/10 px-4 sm:px-6 py-3 relative">
-            <div className="max-w-5xl mx-auto flex items-center justify-between">
+            <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
 
-                {/* Λογότυπο = όνομα μαγαζιού */}
+                {/* Λογότυπο = όνομα μαγαζιού. min-w-0 + truncate: κόβεται με "…" αντί να σπρώχνει τα links. */}
                 <Link
                     to="/"
                     onClick={() => setOpen(false)}
-                    className="text-xl font-semibold text-slate tracking-tight truncate max-w-[60%] md:max-w-none"
+                    className="text-xl font-semibold text-slate tracking-tight truncate min-w-0"
                 >
                     {name}
                 </Link>
 
-                {/* ── DESKTOP (≥ md) ── */}
-                <div className="hidden md:flex items-center gap-2 lg:gap-3">
+                {/* ── DESKTOP (≥ lg) ── */}
+                <div className="hidden lg:flex items-center gap-2 flex-shrink-0">
                     {links.map((link) => (
                         <NavItem key={link.to} link={link} mobile={false} />
                     ))}
@@ -118,19 +123,19 @@ export default function Navbar() {
                     )}
                 </div>
 
-                {/* ── MOBILE: hamburger (< md) ── */}
+                {/* ── MOBILE / TABLET: hamburger (< lg) ── */}
                 <button
                     onClick={() => setOpen((o) => !o)}
-                    className="md:hidden p-2 rounded-lg text-slate/70 hover:bg-page transition-colors"
+                    className="lg:hidden p-2 rounded-lg text-slate/70 hover:bg-page transition-colors flex-shrink-0"
                     aria-label="Μενού"
                 >
                     {open ? <X size={22} /> : <Menu size={22} />}
                 </button>
             </div>
 
-            {/* ── MOBILE dropdown ── */}
+            {/* ── Dropdown ── */}
             {open && (
-                <div className="md:hidden absolute left-0 right-0 top-full bg-white border-b border-slate/10 shadow-lg z-50">
+                <div className="lg:hidden absolute left-0 right-0 top-full bg-white border-b border-slate/10 shadow-lg z-50">
                     <div className="max-w-5xl mx-auto px-4 py-3 flex flex-col gap-1">
                         {links.map((link) => (
                             <NavItem key={link.to} link={link} mobile={true} />

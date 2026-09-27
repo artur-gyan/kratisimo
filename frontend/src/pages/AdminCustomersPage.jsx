@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Pencil, Clock, UserCheck, UserX } from 'lucide-react';
+import { Search, Pencil, Clock, UserCheck, UserX, Gift } from 'lucide-react';
 import { adminCustomerService } from '../services/adminCustomerService';
 import CustomerEditModal from '../components/CustomerEditModal';
 import CustomerHistoryModal from '../components/CustomerHistoryModal';
@@ -58,7 +58,7 @@ export default function AdminCustomersPage() {
             } else {
                 await adminCustomerService.activate(customer.id);
             }
-            // Ενημέρωσε τοπικά χωρίς πλήρες reload.
+            // Ενημέρωσε τοπικά χωρίς πλήρες reload (το ...c κρατάει και το loyalty).
             setCustomers((prev) =>
                 prev.map((c) =>
                     c.id === customer.id ? { ...c, active: !c.active } : c
@@ -69,9 +69,21 @@ export default function AdminCustomersPage() {
         }
     }
 
+    // ΝΕΟ (2f-2): οι κανόνες του προγράμματος είναι ίδιοι για όλους τους πελάτες
+    // (έρχονται μέσα σε κάθε loyalty) → τους παίρνουμε από τον πρώτο.
+    const program = customers.find((c) => c.loyalty)?.loyalty;
+
     return (
         <div className="max-w-4xl mx-auto px-4 py-8">
-            <h1 className="text-2xl font-semibold text-slate mb-6">Πελάτες</h1>
+            <h1 className="text-2xl font-semibold text-slate mb-1">Πελάτες</h1>
+            {program?.enabled ? (
+                <p className="text-slate/50 text-sm mb-6 flex items-center gap-1.5">
+                    <Gift size={14} />
+                    Επιβράβευση: κάθε {program.visitsRequired} ολοκληρωμένα ραντεβού → έκπτωση {program.discountPercent}%
+                </p>
+            ) : (
+                <div className="mb-5" />
+            )}
 
             {/* Search */}
             <div className="relative mb-6">
@@ -100,7 +112,7 @@ export default function AdminCustomersPage() {
                     {customers.map((c) => (
                         <div
                             key={c.id}
-                            className={`bg-white border rounded-xl p-4 flex items-center justify-between ${
+                            className={`bg-white border rounded-xl p-4 flex items-center justify-between gap-3 ${
                                 c.active ? 'border-slate/10' : 'border-danger/20 bg-danger-tint/30'
                             }`}
                         >
@@ -115,6 +127,9 @@ export default function AdminCustomersPage() {
                                 </p>
                                 <p className="text-slate/60 text-sm">{c.email}</p>
                                 {c.phone && <p className="text-slate/50 text-sm">{c.phone}</p>}
+
+                                {/* ΝΕΟ (2f-2): πρόοδος επιβράβευσης */}
+                                <LoyaltyProgress loyalty={c.loyalty} />
                             </div>
 
                             <div className="flex items-center gap-2 flex-shrink-0">
@@ -154,6 +169,7 @@ export default function AdminCustomersPage() {
                     customer={editTarget}
                     onClose={() => setEditTarget(null)}
                     onSaved={(updated) => {
+                        // Το updated (AdminCustomerResponse) περιέχει ήδη και το loyalty.
                         setCustomers((prev) =>
                             prev.map((c) => (c.id === updated.id ? updated : c))
                         );
@@ -167,6 +183,41 @@ export default function AdminCustomersPage() {
                     customer={historyTarget}
                     onClose={() => setHistoryTarget(null)}
                 />
+            )}
+        </div>
+    );
+}
+
+// ΝΕΟ (2f-2): συμπαγής μπάρα «4/7» + badge διαθέσιμης έκπτωσης.
+// Συνεχής μπάρα (όχι κομμάτια) → δουλεύει ίδια για N=3 ή N=20.
+// Το πλάτος είναι δυναμικό → inline style (το Tailwind δεν παράγει κλάσεις runtime).
+// ΑΛΛΑΓΗ (D173): το badge δείχνει το % του ΔΩΡΟΥ (nextRewardPercent)· τα δώρα μπορεί
+// να έχουν διαφορετικά % μεταξύ τους → με >1 δώρα δείχνουμε το % του επόμενου.
+function LoyaltyProgress({ loyalty }) {
+    if (!loyalty || !loyalty.enabled) return null;
+
+    const { progress, visitsRequired, availableRewards, nextRewardPercent } = loyalty;
+    const percentFilled = Math.min(100, (progress / visitsRequired) * 100);
+
+    return (
+        <div className="flex items-center gap-2 mt-2 flex-wrap">
+            <div className="w-24 h-1.5 bg-slate/10 rounded-full overflow-hidden">
+                <div
+                    className="h-full bg-blue rounded-full"
+                    style={{ width: `${percentFilled}%` }}
+                />
+            </div>
+            <span className="text-xs text-slate/60">
+                <span className="font-medium text-slate">{progress}/{visitsRequired}</span>{' '}
+                για {availableRewards > 0 ? 'την επόμενη ' : ''}έκπτωση
+            </span>
+            {availableRewards > 0 && (
+                <span className="inline-flex items-center gap-1 text-xs font-medium bg-success-tint text-success px-2 py-0.5 rounded-full">
+                    <Gift size={12} />
+                    {availableRewards === 1
+                        ? `1 διαθέσιμη έκπτωση ${nextRewardPercent}%`
+                        : `${availableRewards} διαθέσιμες εκπτώσεις · επόμενη ${nextRewardPercent}%`}
+                </span>
             )}
         </div>
     );

@@ -4,33 +4,8 @@ import { motion } from 'framer-motion';
 import { Calendar, Clock, Star, ArrowRight } from 'lucide-react';
 import { getBusinessInfo } from '../services/businessService';
 import { api } from '../services/api';
-
-function Avatar({ name, photoUrl }) {
-    if (photoUrl) {
-        return <img src={photoUrl} alt={name} className="w-16 h-16 rounded-full object-cover" />;
-    }
-    const initials = (name || '')
-        .split(' ').filter((w) => w.length > 0).slice(0, 2)
-        .map((w) => w[0]).join('').toUpperCase();
-    return (
-        <div className="w-16 h-16 rounded-full bg-blue-tint text-blue font-semibold text-xl flex items-center justify-center">
-            {initials}
-        </div>
-    );
-}
-
-function RatingBadge({ average, count }) {
-    if (average === null || average === undefined) {
-        return <p className="text-slate/40 text-sm">Χωρίς κριτικές</p>;
-    }
-    return (
-        <p className="text-slate/60 text-sm flex items-center gap-1">
-            <Star size={13} className="fill-blue text-blue" />
-            <span className="font-medium text-slate">{average.toFixed(1)}</span>
-            <span>({count})</span>
-        </p>
-    );
-}
+import Avatar from '../components/Avatar';
+import RatingBadge from '../components/RatingBadge';
 
 export default function HomePage() {
     const navigate = useNavigate();
@@ -40,29 +15,19 @@ export default function HomePage() {
 
     useEffect(() => {
         async function load() {
-            const [info, svc] = await Promise.all([
+            // Τρία ανεξάρτητα requests ΠΑΡΑΛΛΗΛΑ (όχι waterfall).
+            // Κάθε ένα με δικό του .catch: αν αποτύχει ένα, τα άλλα εμφανίζονται κανονικά.
+            const [info, svc, emps] = await Promise.all([
                 getBusinessInfo().catch(() => null),
                 api.get('/services').catch(() => []),
+                api.get('/employees').catch(() => []),   // ΟΛΟΙ οι ενεργοί
             ]);
             setBusiness(info);
             setServices(svc);
+            setEmployees(emps);
         }
         load();
     }, []);
-
-    useEffect(() => {
-        if (services.length === 0) return;
-        async function loadEmployees() {
-            try {
-                const firstServiceId = services[0].id;
-                const data = await api.get(`/employees/available?serviceIds=${firstServiceId}`);
-                setEmployees(data);
-            } catch {
-                setEmployees([]);
-            }
-        }
-        loadEmployees();
-    }, [services]);
 
     const businessName = business?.name || 'Kratisimo';
 
@@ -77,7 +42,7 @@ export default function HomePage() {
         <div className="bg-page overflow-hidden">
             {/* ═══ HERO ═══ */}
             <section className="relative min-h-[85vh] flex items-center justify-center overflow-hidden">
-                {/* Animated warm gradient — βασισμένο στα theme tokens */}
+                {/* Animated gradient — βασισμένο στα theme tokens */}
                 <div
                     className="absolute inset-0"
                     style={{
@@ -281,13 +246,27 @@ export default function HomePage() {
                                 transition={{ duration: 0.4, delay: i * 0.08 }}
                                 className="bg-white border border-slate/10 rounded-2xl p-6 flex items-center gap-4 hover:shadow-lg transition-all duration-300"
                             >
-                                <Avatar name={emp.fullName} photoUrl={emp.photoUrl} />
-                                <div>
+                                <Avatar
+                                    name={emp.fullName}
+                                    photoUrl={emp.photoUrl}
+                                    size="w-16 h-16"
+                                    textSize="text-xl"
+                                />
+                                <div className="min-w-0">
                                     <p className="text-slate font-semibold">{emp.fullName}</p>
                                     <RatingBadge average={emp.averageRating} count={emp.reviewCount} />
                                 </div>
                             </motion.div>
                         ))}
+                    </div>
+
+                    <div className="text-center mt-10">
+                        <button
+                            onClick={() => navigate('/team')}
+                            className="inline-flex items-center gap-1.5 text-blue font-medium hover:gap-2.5 transition-all"
+                        >
+                            Δες όλη την ομάδα και τις κριτικές <ArrowRight size={16} />
+                        </button>
                     </div>
                 </section>
             )}

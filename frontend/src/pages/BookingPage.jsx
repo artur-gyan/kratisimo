@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { Check, Clock, Star, X } from 'lucide-react';
+import { Check, Clock, Gift } from 'lucide-react';
+import Avatar from '../components/Avatar';
+import RatingBadge from '../components/RatingBadge';
+import EmployeeProfileModal from '../components/EmployeeProfileModal';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -23,10 +26,7 @@ export default function BookingPage() {
     const [employeesLoading, setEmployeesLoading] = useState(false);
     const [employeesError, setEmployeesError] = useState('');
 
-    // Ποιου υπαλλήλου το προφίλ βλέπουμε στο modal (id, ή null = κλειστό).
-    // Κρατάμε ΜΟΝΟ το id (όχι ολόκληρο object): το modal κάνει το δικό του
-    // fetch για τα reviews, οπότε το id αρκεί. Το state ζει στο page level
-    // (όχι μέσα στην κάρτα) → το modal είναι top-level component, ΟΧΙ φωλιασμένο.
+    // Ποιου υπαλλήλου το προφίλ βλέπουμε στο modal (object, ή null = κλειστό).
     const [profileEmployee, setProfileEmployee] = useState(null);
 
     // Βήμα 3: ημερομηνία (string "YYYY-MM-DD") + επιλεγμένο slot (Instant string).
@@ -48,9 +48,13 @@ export default function BookingPage() {
     const [bookingError, setBookingError] = useState('');  // γενικό σφάλμα
     const [confirmedBooking, setConfirmedBooking] = useState(null); // η επιτυχής απάντηση
 
+    // ΝΕΟ (2f): κατάσταση επιβράβευσης (LoyaltyResponse) — μόνο για ΠΡΟΒΟΛΗ στο βήμα 4.
+    const [loyalty, setLoyalty] = useState(null);
+
     const navigate = useNavigate();
     const { user } = useAuth();
     const [searchParams] = useSearchParams();
+
     // Φόρτωση υπηρεσιών στο mount.
     useEffect(() => {
         async function loadServices() {
@@ -67,7 +71,6 @@ export default function BookingPage() {
     }, []);
 
     // ─── PRESELECT υπηρεσίας από URL (?service=ID) — landing deep-link ───
-    // Τρέχει ΟΤΑΝ φορτωθούν οι υπηρεσίες (χρειάζεται τη λίστα για να βρει το object).
     // ΔΕΝ εφαρμόζεται αν υπάρχει pendingBooking (guest restore προηγείται).
     useEffect(() => {
         if (services.length === 0) return;
@@ -78,14 +81,11 @@ export default function BookingPage() {
 
         const service = services.find((s) => String(s.id) === serviceId);
         if (service) {
-            setSelectedServices([service]);  // βήμα 1, τσεκαρισμένη — ο χρήστης μπορεί να προσθέσει κι άλλες
+            setSelectedServices([service]);
         }
     }, [services, searchParams]);
 
     // ─── GUEST FLOW: restore επιλογών μετά από login/register (D51) ───
-    // Αν ο ανώνυμος πάτησε "Επιβεβαίωση" στο βήμα 4, οι επιλογές του σώθηκαν
-    // σε sessionStorage πριν το redirect στο /login. Τώρα που γύρισε (logged in),
-    // τις ξαναφορτώνουμε και τον πάμε ΚΑΤΕΥΘΕΙΑΝ στο βήμα 4 (προ-συμπληρωμένο).
     useEffect(() => {
         const raw = sessionStorage.getItem('pendingBooking');
         if (!raw) return;
@@ -103,22 +103,18 @@ export default function BookingPage() {
         } catch {
             // corrupt data — αγνόησε
         } finally {
-            // Καθάρισε: το διαβάσαμε, δεν το χρειαζόμαστε άλλο (Απόφαση Γ).
             sessionStorage.removeItem('pendingBooking');
         }
     }, [user]);
 
     // Φόρτωσε υπαλλήλους ΟΤΑΝ φτάνουμε στο βήμα 2.
-    // Dependency [step]: τρέχει κάθε φορά που αλλάζει το step.
     useEffect(() => {
-        // Τρέχει ΜΟΝΟ στο βήμα 2, και μόνο αν έχουμε επιλεγμένες υπηρεσίες.
         if (step !== 2) return;
 
         async function loadEmployees() {
             setEmployeesLoading(true);
             setEmployeesError('');
             try {
-                // Χτίζουμε το query param: serviceIds=1,4,7 (comma-separated).
                 const ids = selectedServices.map((s) => s.id).join(',');
                 const data = await api.get(`/employees/available?serviceIds=${ids}`);
                 setEmployees(data);
@@ -132,7 +128,6 @@ export default function BookingPage() {
     }, [step]);
 
     // Φόρτωσε slots όταν επιλεγεί ημερομηνία (στο βήμα 3).
-    // Dependencies: [selectedDate, step] — ξανατρέχει αν αλλάξει η μέρα.
     useEffect(() => {
         if (step !== 3 || !selectedDate || !selectedEmployee) return;
 
@@ -142,9 +137,8 @@ export default function BookingPage() {
             setSelectedSlot(null); // reset επιλογή αν άλλαξε η μέρα
             try {
                 if (selectedEmployee.id === null) {
-                    // «Οποιοσδήποτε»: κάλεσε availability για ΚΑΘΕ υπάλληλο της λίστας,
-                    // ένωσε τα slots (unique + sorted). Η ΠΡΟΒΟΛΗ είναι η ένωση (D121)·
-                    // η ΑΝΑΘΕΣΗ γίνεται least-loaded στο backend POST (D18).
+                    // «Οποιοσδήποτε»: ένωση slots όλων (προβολή, D121)·
+                    // ανάθεση least-loaded στο backend POST (D18).
                     const perEmployee = await Promise.all(
                         employees.map((emp) => {
                             const params = new URLSearchParams({
@@ -158,8 +152,6 @@ export default function BookingPage() {
                     const merged = [...new Set(perEmployee.flat())].sort();
                     setSlots(merged);
                 } else {
-                    // Συγκεκριμένος υπάλληλος: μία κλήση.
-                    // durationMinutes = RAW άθροισμα (το backend κάνει ceiling).
                     const params = new URLSearchParams({
                         employeeId: selectedEmployee.id,
                         date: selectedDate,
@@ -177,8 +169,19 @@ export default function BookingPage() {
         loadSlots();
     }, [selectedDate, step]);
 
+    // ─── ΝΕΟ (2f): επιβράβευση για την ΠΡΟΒΟΛΗ του βήματος 4 ───
+    // Μόνο συνδεδεμένος (ο ανώνυμος δεν έχει ιστορικό). Ξαναφορτώνει ΚΑΘΕ φορά
+    // που μπαίνουμε στο βήμα 4 — π.χ. μετά από κράτηση η επιβράβευση έχει
+    // καταναλωθεί, ή μετά από guest login (user αλλάζει → ξανατρέχει).
+    // Enhancement: αν αποτύχει → χωρίς πρόβλεψη, η κράτηση δουλεύει κανονικά.
+    useEffect(() => {
+        if (step !== 4 || !user) return;
+        api.get('/loyalty/me')
+            .then(setLoyalty)
+            .catch(() => setLoyalty(null));
+    }, [step, user]);
+
     // ─── ΛΟΓΙΚΗ ΕΠΙΛΟΓΗΣ ───
-    // Toggle: αν είναι ήδη επιλεγμένη, αφαίρεσέ την· αλλιώς πρόσθεσέ την.
     function toggleService(service) {
         setSelectedServices((prev) => {
             const exists = prev.find((s) => s.id === service.id);
@@ -188,6 +191,7 @@ export default function BookingPage() {
             return [...prev, service];
         });
     }
+
     // Το τελικό POST. Χειρίζεται τρεις εκβάσεις: επιτυχία / 409 / άλλο.
     async function handleBooking() {
         // ─── GUEST GATE (D51): ανώνυμος → σώσε επιλογές + πήγαινε login ───
@@ -207,22 +211,22 @@ export default function BookingPage() {
         setBookingError('');
 
         try {
+            // Στέλνουμε ΜΟΝΟ επιλογές — ΠΟΤΕ τιμή ή έκπτωση (D76).
+            // Την τελική τιμή την αποφασίζει ο server.
             const payload = {
-                serviceIds: selectedServices.map((s) => s.id),  // μόνο ids στο backend
+                serviceIds: selectedServices.map((s) => s.id),
                 employeeId: selectedEmployee.id,
-                startsAt: selectedSlot,   // το Instant string, ως έχει
+                startsAt: selectedSlot,
             };
             const response = await api.post('/appointments', payload);
-            setConfirmedBooking(response);  // επιτυχία → δείξε επιβεβαίωση
-            sessionStorage.removeItem('pendingBooking');  // σιγουριά (Απόφαση Γ)
+            setConfirmedBooking(response);
+            sessionStorage.removeItem('pendingBooking');
         } catch (err) {
             // 409 = το slot πιάστηκε στο μεσοδιάστημα (D84).
-            // Το backend στέλνει 409 με μήνυμα· το api.js το πετάει ως error.
-            // Ξεχωρίζουμε το 409 από άλλα σφάλματα με το status.
             if (err.status === 409) {
                 setBookingError('Αυτή η ώρα μόλις κλείστηκε από άλλον. Διάλεξε άλλη ώρα.');
-                setStep(3);              // γύρνα στο βήμα επιλογής ώρας
-                setSelectedSlot(null);   // καθάρισε την πιασμένη ώρα
+                setStep(3);
+                setSelectedSlot(null);
             } else {
                 setBookingError(err.message);
             }
@@ -232,8 +236,6 @@ export default function BookingPage() {
     }
 
     // Μηδενίζει όλο το wizard state για νέα κράτηση.
-    // Δεν αρκεί navigate('/book') — το component δεν ξαναφορτώνεται αν είσαι
-    // ήδη εκεί, άρα το state μένει κολλημένο στην οθόνη επιτυχίας.
     function resetWizard() {
         setStep(1);
         setSelectedServices([]);
@@ -243,6 +245,7 @@ export default function BookingPage() {
         setSlots([]);
         setConfirmedBooking(null);
         setBookingError('');
+        setLoyalty(null);   // ΝΕΟ (2f): όχι παλιά πρόβλεψη στη νέα κράτηση
     }
 
     function isSelected(serviceId) {
@@ -250,7 +253,6 @@ export default function BookingPage() {
     }
 
     // ─── ΠΑΡΑΓΩΓΑ (υπολογίζονται από το state) ───
-    // Συνολική RAW διάρκεια — θα σταλεί στο availability (το backend κάνει ceiling).
     const totalDuration = selectedServices.reduce(
         (sum, s) => sum + s.durationMinutes, 0
     );
@@ -258,9 +260,19 @@ export default function BookingPage() {
         (sum, s) => sum + Number(s.price), 0
     );
 
+    // ─── ΠΡΟΒΛΕΨΗ έκπτωσης — ΜΟΝΟ για προβολή ───
+    // Ίδιος κανόνας με τον server: σύνολο × % / 100, στρογγυλοποίηση σε λεπτά.
+    // (σύνολο × %) = ποσό σε λεπτά → Math.round → /100 = ευρώ με 2 δεκαδικά.
+    // Η ΤΕΛΙΚΗ τιμή έρχεται από το POST response (οθόνη επιτυχίας).
+    // ΑΛΛΑΓΗ (D173): το % του ΔΩΡΟΥ (nextRewardPercent), όχι του τρέχοντος κανόνα —
+    // αν ο admin άλλαξε το % αφού κερδήθηκε το δώρο, το δώρο κρατά το δικό του.
+    const hasReward = Boolean(loyalty?.enabled && loyalty.availableRewards > 0);
+    const previewPercent = hasReward ? loyalty.nextRewardPercent : 0;
+    const previewDiscount = Math.round(totalPrice * previewPercent) / 100;
+    const previewTotal = totalPrice - previewDiscount;
+    const visitsToReward = loyalty ? loyalty.visitsRequired - loyalty.progress : 0;
+
     // ─── ΟΜΑΔΟΠΟΙΗΣΗ ανά κατηγορία ───
-    // Το UI δείχνει τις υπηρεσίες ομαδοποιημένες (PROJECT.md Section 5).
-    // Μετατρέπουμε flat λίστα → { categoryName: [services] }.
     const grouped = services.reduce((acc, service) => {
         const cat = service.categoryName;
         if (!acc[cat]) acc[cat] = [];
@@ -284,7 +296,6 @@ export default function BookingPage() {
     return (
         <div className="max-w-3xl mx-auto px-4 py-8">
 
-            {/* Στεπερ ένδειξη */}
             <StepIndicator currentStep={step} />
 
             {/* ─── ΒΗΜΑ 1: ΕΠΙΛΟΓΗ ΥΠΗΡΕΣΙΩΝ ─── */}
@@ -295,7 +306,6 @@ export default function BookingPage() {
                         Μπορείς να επιλέξεις περισσότερες από μία.
                     </p>
 
-                    {/* Υπηρεσίες ομαδοποιημένες ανά κατηγορία */}
                     <div className="space-y-6">
                         {Object.keys(grouped).map((categoryName) => (
                             <div key={categoryName}>
@@ -324,7 +334,6 @@ export default function BookingPage() {
                                                 <span className="text-slate font-medium">
                                                     {Number(service.price).toFixed(2)} €
                                                 </span>
-                                                {/* Checkbox ένδειξη */}
                                                 <span className={`w-6 h-6 rounded-md flex items-center justify-center ${
                                                     isSelected(service.id)
                                                         ? 'bg-blue text-white'
@@ -340,7 +349,6 @@ export default function BookingPage() {
                         ))}
                     </div>
 
-                    {/* Σύνοψη + κουμπί συνέχειας (sticky κάτω) */}
                     {selectedServices.length > 0 && (
                         <div className="sticky bottom-4 mt-6 bg-white border border-slate/15 rounded-2xl p-4 shadow-lg flex items-center justify-between">
                             <div>
@@ -362,7 +370,6 @@ export default function BookingPage() {
                 </div>
             )}
 
-            {/* ─── ΒΗΜΑΤΑ 2-4: placeholder, θα τα χτίσουμε ─── */}
             {/* ─── ΒΗΜΑ 2: ΕΠΙΛΟΓΗ ΥΠΑΛΛΗΛΟΥ ─── */}
             {step === 2 && (
                 <div>
@@ -381,7 +388,6 @@ export default function BookingPage() {
                         </div>
                     )}
 
-                    {/* Κανένας υπάλληλος δεν προσφέρει όλες τις υπηρεσίες */}
                     {!employeesLoading && !employeesError && employees.length === 0 && (
                         <div className="bg-page rounded-xl px-4 py-8 text-center text-slate/60">
                             Κανένας υπάλληλος δεν προσφέρει όλες τις επιλεγμένες υπηρεσίες.
@@ -392,10 +398,9 @@ export default function BookingPage() {
                         </div>
                     )}
 
-                    {/* Λίστα υπαλλήλων */}
                     {!employeesLoading && employees.length > 0 && (
                         <div className="space-y-2">
-                            {/* Κάρτα «Οποιοσδήποτε διαθέσιμος» — id:null → backend least-loaded (D18) */}
+                            {/* «Οποιοσδήποτε διαθέσιμος» — id:null → backend least-loaded (D18) */}
                             <div
                                 onClick={() => setSelectedEmployee({ id: null, fullName: 'Οποιοσδήποτε διαθέσιμος' })}
                                 className={`w-full text-left flex items-center gap-4 p-4 rounded-xl border transition-colors cursor-pointer ${
@@ -419,10 +424,7 @@ export default function BookingPage() {
                             </div>
 
                             {employees.map((emp) => (
-                                // ΠΡΟΣΟΧΗ: div, ΟΧΙ button. Μέσα υπάρχει το κουμπί
-                                // «Προβολή προφίλ» — button μέσα σε button = invalid HTML.
-                                // Η επιλογή γίνεται με onClick στο div· το inner κουμπί
-                                // κάνει stopPropagation ώστε να μην επιλέγει τον υπάλληλο.
+                                // div, ΟΧΙ button: μέσα υπάρχει το «Προβολή προφίλ» (button-in-button = invalid, D129).
                                 <div
                                     key={emp.id}
                                     onClick={() => setSelectedEmployee(emp)}
@@ -432,10 +434,8 @@ export default function BookingPage() {
                                             : 'border-slate/10 bg-white hover:border-slate/25'
                                     }`}
                                 >
-                                    {/* Avatar: φωτογραφία αν υπάρχει, αλλιώς αρχικά ονόματος */}
                                     <Avatar name={emp.fullName} photoUrl={emp.photoUrl} />
 
-                                    {/* Όνομα + inline βαθμολογία (από το batch response, D110) */}
                                     <div className="flex-1 min-w-0">
                                         <p className="text-slate font-medium">{emp.fullName}</p>
                                         <RatingBadge
@@ -444,7 +444,6 @@ export default function BookingPage() {
                                         />
                                     </div>
 
-                                    {/* Προβολή προφίλ: stopPropagation → δεν επιλέγει τον υπάλληλο */}
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();
@@ -455,7 +454,6 @@ export default function BookingPage() {
                                         Προβολή προφίλ
                                     </button>
 
-                                    {/* Ένδειξη επιλογής */}
                                     {selectedEmployee?.id === emp.id && (
                                         <span className="w-6 h-6 rounded-full bg-blue text-white flex items-center justify-center flex-shrink-0">
                                             <Check size={16} />
@@ -466,7 +464,6 @@ export default function BookingPage() {
                         </div>
                     )}
 
-                    {/* Πλοήγηση: Πίσω + Συνέχεια */}
                     <div className="flex items-center justify-between mt-6">
                         <button
                             onClick={() => setStep(1)}
@@ -486,6 +483,7 @@ export default function BookingPage() {
                     </div>
                 </div>
             )}
+
             {/* ─── ΒΗΜΑ 3: ΗΜΕΡΟΜΗΝΙΑ & ΩΡΑ ─── */}
             {step === 3 && (
                 <div>
@@ -494,17 +492,15 @@ export default function BookingPage() {
                         Υπάλληλος: {selectedEmployee.fullName}
                     </p>
 
-                    {/* Date picker */}
                     <label className="block text-sm text-slate/70 mb-1">Ημερομηνία</label>
                     <input
                         type="date"
                         value={selectedDate}
-                        min={today()}   // δεν επιτρέπουμε παρελθόν
+                        min={today()}
                         onChange={(e) => setSelectedDate(e.target.value)}
                         className="w-full border border-slate/20 rounded-xl px-3 py-2.5 mb-6 focus:outline-none focus:border-blue focus:ring-2 focus:ring-blue/20"
                     />
 
-                    {/* Slots */}
                     {selectedDate && (
                         <div>
                             <label className="block text-sm text-slate/70 mb-2">Διαθέσιμες ώρες</label>
@@ -545,7 +541,6 @@ export default function BookingPage() {
                         </div>
                     )}
 
-                    {/* Πλοήγηση */}
                     <div className="flex items-center justify-between mt-8">
                         <button
                             onClick={() => setStep(2)}
@@ -565,11 +560,12 @@ export default function BookingPage() {
                     </div>
                 </div>
             )}
+
             {/* ─── ΒΗΜΑ 4: ΕΠΙΒΕΒΑΙΩΣΗ ─── */}
             {step === 4 && (
                 <div>
-                    {/* Αν έχει γίνει η κράτηση → οθόνη επιτυχίας */}
                     {confirmedBooking ? (
+                        /* ── Οθόνη επιτυχίας: τιμές ΑΠΟ ΤΟΝ SERVER (όχι πρόβλεψη) ── */
                         <div className="text-center py-8">
                             <div className="w-16 h-16 rounded-full bg-success-tint text-success flex items-center justify-center mx-auto mb-4">
                                 <Check size={32} />
@@ -581,9 +577,19 @@ export default function BookingPage() {
                             <div className="bg-white border border-slate/10 rounded-2xl p-5 text-left max-w-sm mx-auto">
                                 <SummaryRow label="Υπάλληλος" value={confirmedBooking.employeeName} />
                                 <SummaryRow label="Ώρα" value={formatDateTime(confirmedBooking.startsAt)} />
+                                {/* ΝΕΟ (2f): έκπτωση όπως την εφάρμοσε ο server */}
+                                {confirmedBooking.discountPercent > 0 && (
+                                    <div className="flex justify-between text-success mb-1.5">
+                                        <span className="flex items-center gap-1.5">
+                                            <Gift size={15} /> Επιβράβευση −{confirmedBooking.discountPercent}%
+                                        </span>
+                                        <span className="font-medium">
+                                            −{Number(confirmedBooking.discountAmount).toFixed(2)} €
+                                        </span>
+                                    </div>
+                                )}
                                 <SummaryRow label="Σύνολο" value={`${Number(confirmedBooking.totalPrice).toFixed(2)} €`} />
                             </div>
-                            {/* Κουμπιά επόμενης ενέργειας */}
                             <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-8">
                                 <button
                                     onClick={() => navigate('/appointments')}
@@ -600,12 +606,11 @@ export default function BookingPage() {
                             </div>
                         </div>
                     ) : (
-                        /* Αλλιώς → σύνοψη + κουμπί επιβεβαίωσης */
+                        /* ── Σύνοψη + κουμπί επιβεβαίωσης ── */
                         <div>
                             <h1 className="text-2xl font-semibold text-slate mb-6">Επιβεβαίωση</h1>
 
                             <div className="bg-white border border-slate/10 rounded-2xl p-5 mb-4">
-                                {/* Υπηρεσίες */}
                                 <p className="text-sm text-slate/50 uppercase tracking-wide mb-2">Υπηρεσίες</p>
                                 {selectedServices.map((s) => (
                                     <div key={s.id} className="flex justify-between text-slate mb-1">
@@ -622,10 +627,43 @@ export default function BookingPage() {
 
                                 <div className="border-t border-slate/10 my-3" />
 
+                                {/* ΝΕΟ (2f): πρόβλεψη έκπτωσης */}
+                                {previewPercent > 0 && (
+                                    <>
+                                        <div className="flex justify-between text-slate mb-1.5">
+                                            <span className="text-slate/60">Υποσύνολο</span>
+                                            <span>{totalPrice.toFixed(2)} €</span>
+                                        </div>
+                                        <div className="flex justify-between text-success mb-3">
+                                            <span className="flex items-center gap-1.5">
+                                                <Gift size={15} /> Επιβράβευση −{previewPercent}%
+                                            </span>
+                                            <span className="font-medium">−{previewDiscount.toFixed(2)} €</span>
+                                        </div>
+                                    </>
+                                )}
+
                                 <div className="flex justify-between font-semibold text-slate text-lg">
                                     <span>Σύνολο</span>
-                                    <span>{totalPrice.toFixed(2)} €</span>
+                                    <span>{previewTotal.toFixed(2)} €</span>
                                 </div>
+
+                                {/* ΝΕΟ (2f): υπενθύμιση προόδου όταν δεν υπάρχει διαθέσιμη επιβράβευση */}
+                                {loyalty?.enabled && !hasReward && (
+                                    <p className="text-slate/50 text-sm mt-3 flex items-center gap-1.5">
+                                        <Gift size={14} />
+                                        Ακόμη {visitsToReward}{' '}
+                                        {visitsToReward === 1 ? 'ολοκληρωμένο ραντεβού' : 'ολοκληρωμένα ραντεβού'}{' '}
+                                        για έκπτωση {loyalty.discountPercent}%
+                                    </p>
+                                )}
+
+                                {/* ΝΕΟ (2f): ανώνυμος — η επιβράβευση φαίνεται μετά τη σύνδεση */}
+                                {!user && (
+                                    <p className="text-slate/50 text-sm mt-3">
+                                        Αν έχεις διαθέσιμη επιβράβευση, θα εμφανιστεί μετά τη σύνδεση.
+                                    </p>
+                                )}
                             </div>
 
                             {bookingError && (
@@ -659,10 +697,6 @@ export default function BookingPage() {
                 </div>
             )}
 
-            {/* ─── MODAL ΠΡΟΦΙΛ ΥΠΑΛΛΗΛΟΥ ─── */}
-            {/* Render ΜΟΝΟ όταν profileEmployee !== null. Το component είναι
-                top-level (ορίζεται κάτω, στη στήλη 0) — εδώ απλώς το καλούμε.
-                onClose μηδενίζει το state → το modal ξεμοντάρεται. */}
             {profileEmployee && (
                 <EmployeeProfileModal
                     employee={profileEmployee}
@@ -673,7 +707,7 @@ export default function BookingPage() {
     );
 }
 
-// ─── Step indicator (μικρό βοηθητικό component) ───
+// ─── Step indicator ───
 function StepIndicator({ currentStep }) {
     const steps = ['Υπηρεσίες', 'Υπάλληλος', 'Ημ/νία & ώρα', 'Επιβεβαίωση'];
     return (
@@ -706,192 +740,12 @@ function StepIndicator({ currentStep }) {
     );
 }
 
-// ─── Avatar: φωτογραφία ή αρχικά ονόματος ───
-// photoUrl είναι null στα seed → placeholder με τα αρχικά (π.χ. "Μαρία Παπαδοπούλου" → "ΜΠ").
-// size = Tailwind κλάσεις μεγέθους (default = μικρό, όπως στην κάρτα βήματος 2).
-// Το modal περνάει μεγαλύτερο μέγεθος χωρίς να επηρεάζεται η κάρτα.
-// textSize = μέγεθος γραμμάτων για το placeholder με τα αρχικά.
-function Avatar({ name, photoUrl, size = 'w-11 h-11', textSize = 'text-base' }) {
-    if (photoUrl) {
-        return (
-            <img
-                src={photoUrl}
-                alt={name}
-                className={`${size} rounded-full object-cover flex-shrink-0`}
-            />
-        );
-    }
-
-    // Αρχικά, με προστασία για κενές λέξεις (διπλά κενά κ.λπ.).
-    const initials = name
-        .split(' ')
-        .filter((word) => word.length > 0)
-        .slice(0, 2)
-        .map((word) => word[0])
-        .join('')
-        .toUpperCase();
-
-    return (
-        <div className={`${size} ${textSize} rounded-full bg-blue-tint text-blue font-semibold flex items-center justify-center flex-shrink-0`}>
-            {initials}
-        </div>
-    );
-}
-
-// ─── RatingBadge: inline αστεράκι + μέσος όρος + count ───
-// average είναι Double nullable από το backend (D110): null όταν 0 reviews.
-// ΔΕΝ δείχνουμε "0 ★" σε αβαθμολόγητο υπάλληλο — μηδέν κριτικές ≠ βαθμός 0
-// (το min rating είναι 1). Δείχνουμε ρητά «Χωρίς κριτικές».
-function RatingBadge({ average, count }) {
-    if (average === null || average === undefined) {
-        return <p className="text-slate/40 text-sm mt-0.5">Χωρίς κριτικές</p>;
-    }
-    return (
-        <p className="text-slate/60 text-sm flex items-center gap-1 mt-0.5">
-            <Star size={13} className="fill-blue text-blue" />
-            <span className="font-medium text-slate">{average.toFixed(1)}</span>
-            <span>({count})</span>
-        </p>
-    );
-}
-
-// ─── StarRow: γεμάτα/άδεια αστεράκια για ένα rating 1-5 (μέσα στο modal) ───
-function StarRow({ rating }) {
-    return (
-        <div className="flex items-center gap-0.5">
-            {[1, 2, 3, 4, 5].map((n) => (
-                <Star
-                    key={n}
-                    size={14}
-                    className={n <= rating ? 'fill-blue text-blue' : 'text-slate/25'}
-                />
-            ))}
-        </div>
-    );
-}
-
-// ─── EmployeeProfileModal: popup με φωτό + όνομα + reviews ───
-// Δέχεται ΟΛΟΚΛΗΡΟ το emp object (το έχουμε ήδη από το βήμα 2) → το header
-// (φωτό/όνομα/μέσος όρος) εμφανίζεται ΑΜΕΣΩΣ, χωρίς να περιμένει το fetch.
-// Τα reviews φορτώνονται LAZY: το useEffect τρέχει στο mount (το modal μοντάρεται
-// μόνο όταν το πατήσεις — άρα mount == άνοιγμα). Κλειδί το employee.id: αν
-// αλλάξει ο υπάλληλος, ξαναφορτώνει.
-function EmployeeProfileModal({ employee, onClose }) {
-    const [reviews, setReviews] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
-
-    useEffect(() => {
-        async function loadReviews() {
-            setLoading(true);
-            setError('');
-            try {
-                // GET /api/employees/{id}/reviews → EmployeeRatingResponse
-                // { id, fullName, average, count, reviews[] }. Μας ενδιαφέρει
-                // το reviews[] (κάθε στοιχείο = ReviewResponse, public-safe D109:
-                // rating, comment, createdAt — ΧΩΡΙΣ customerName).
-                const data = await api.get(`/employees/${employee.id}/reviews`);
-                setReviews(data.reviews || []);
-            } catch (err) {
-                setError('Δεν ήταν δυνατή η φόρτωση των κριτικών.');
-            } finally {
-                setLoading(false);
-            }
-        }
-        loadReviews();
-    }, [employee.id]);
-
-    return (
-        // Overlay: click στο φόντο → κλείσιμο. Το inner div κάνει stopPropagation
-        // ώστε click ΜΕΣΑ στο modal να μην το κλείνει.
-        <div
-            className="fixed inset-0 bg-slate/40 flex items-center justify-center p-4 z-50"
-            onClick={onClose}
-        >
-            <div
-                className="bg-white rounded-2xl max-w-md w-full max-h-[85vh] flex flex-col shadow-xl"
-                onClick={(e) => e.stopPropagation()}
-            >
-                {/* Header: φωτό + όνομα + μέσος όρος (από το ήδη-γνωστό object) */}
-                <div className="flex items-start gap-4 p-5 border-b border-slate/10">
-                    <Avatar name={employee.fullName} photoUrl={employee.photoUrl} size="w-16 h-16" textSize="text-xl" />
-                    <div className="flex-1 min-w-0">
-                        <h2 className="text-lg font-semibold text-slate">{employee.fullName}</h2>
-                        <RatingBadge
-                            average={employee.averageRating}
-                            count={employee.reviewCount}
-                        />
-                    </div>
-                    <button
-                        onClick={onClose}
-                        className="text-slate/40 hover:text-slate transition-colors flex-shrink-0"
-                    >
-                        <X size={20} />
-                    </button>
-                </div>
-
-                {/* Σώμα: λίστα κριτικών (scrollable) */}
-                <div className="p-5 overflow-y-auto">
-                    {loading && (
-                        <p className="text-slate/60 text-center py-6">Φόρτωση κριτικών...</p>
-                    )}
-
-                    {error && (
-                        <div className="bg-danger-tint text-danger rounded-xl px-4 py-3">
-                            {error}
-                        </div>
-                    )}
-
-                    {!loading && !error && reviews.length === 0 && (
-                        <p className="text-slate/50 text-center py-6">
-                            Δεν υπάρχουν κριτικές ακόμα.
-                        </p>
-                    )}
-
-                    {!loading && !error && reviews.length > 0 && (
-                        <div className="space-y-3">
-                            {reviews.map((review) => (
-                                <div
-                                    key={review.id}
-                                    className="bg-page rounded-xl p-4"
-                                >
-                                    <div className="flex items-center justify-between mb-1.5">
-                                        <StarRow rating={review.rating} />
-                                        <span className="text-slate/40 text-xs">
-                                            {formatReviewDate(review.createdAt)}
-                                        </span>
-                                    </div>
-                                    {review.comment && (
-                                        <p className="text-slate/80 text-sm">{review.comment}</p>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-}
-
-// Ημερομηνία κριτικής, π.χ. "11 Αυγ 2026".
-function formatReviewDate(instantString) {
-    return new Date(instantString).toLocaleDateString('el-GR', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-    });
-}
-
 // Σημερινή ημερομηνία ως "YYYY-MM-DD" (για το min του date picker).
 function today() {
     return new Date().toISOString().split('T')[0];
 }
 
-// Μετατρέπει Instant (UTC, π.χ. "2026-08-11T06:00:00Z") σε τοπική ώρα "09:00".
-// Ο browser ξέρει το timezone του χρήστη → κάνει τη μετατροπή αυτόματα.
-// Μετατρέπει Instant (UTC, π.χ. "2026-08-11T06:00:00Z") σε τοπική ώρα "09:00".
-// Ο browser ξέρει το timezone του χρήστη → κάνει τη μετατροπή αυτόματα.
+// Instant (UTC) → τοπική ώρα "09:00". Ο browser κάνει τη μετατροπή ζώνης.
 function formatTime(instantString) {
     return new Date(instantString).toLocaleTimeString('el-GR', {
         hour: '2-digit',
@@ -909,7 +763,7 @@ function SummaryRow({ label, value }) {
     );
 }
 
-// Μετατρέπει Instant σε τοπική ημερομηνία+ώρα, π.χ. "Δευ 11 Αυγ, 09:00".
+// Instant → τοπική ημερομηνία+ώρα, π.χ. "Δευ 11 Αυγ, 09:00".
 function formatDateTime(instantString) {
     return new Date(instantString).toLocaleString('el-GR', {
         weekday: 'short',

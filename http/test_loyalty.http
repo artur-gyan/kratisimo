@@ -1,0 +1,256 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Kratisimo — Chat 16 smoke tests (Βήματα 1a, 1b, 2b, 2c)
+#
+# ΠΩΣ ΤΡΕΧΕΙ: άνοιξε το αρχείο στο IntelliJ → κουμπί "Run All Requests" (⏩)
+# πάνω από το πρώτο request. Τα αποτελέσματα των ελέγχων εμφανίζονται στο
+# παράθυρο "Services" → καρτέλα "Tests" (πράσινο ✓ / κόκκινο ✗).
+#
+# Τα tokens κρατιούνται ΜΟΝΟ στη μνήμη του IntelliJ (client.global) —
+# δεν γράφεται κανένα token σε αυτό το αρχείο → ασφαλές για commit.
+#
+# ΠΡΟΣΟΧΗ: το 2c.2 ΕΝΕΡΓΟΠΟΙΕΙ το πρόγραμμα με N=5 (σκόπιμα, για το Βήμα 2d).
+# ═══════════════════════════════════════════════════════════════════════
+
+
+### 0.1 Login admin
+POST http://localhost:8080/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@kratisimo.com",
+  "password": "admin123"
+}
+
+> {%
+    client.test("0.1 Admin login → 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+    client.global.set("adminToken", response.body.token || response.body.accessToken);
+%}
+
+
+### 0.2 Login Κατερίνα (customer)
+POST http://localhost:8080/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "katerina@example.com",
+  "password": "customer123"
+}
+
+> {%
+    client.test("0.2 Customer login → 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+    client.global.set("katerinaToken", response.body.token || response.body.accessToken);
+%}
+
+
+# ─────────────────────────── ΒΗΜΑ 1a ───────────────────────────
+
+### 1a.1 Public λίστα υπαλλήλων (χωρίς token) → 200 + bio
+GET http://localhost:8080/api/employees
+
+> {%
+    client.test("1a.1 GET /api/employees → 200, λίστα με bio", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+        client.assert(response.body.length > 0, "Κενή λίστα υπαλλήλων");
+        client.assert(response.body[0].hasOwnProperty("bio"), "Λείπει το πεδίο bio");
+        client.assert(response.body[0].hasOwnProperty("averageRating"), "Λείπει το averageRating");
+    });
+%}
+
+
+# ─────────────────────────── ΒΗΜΑ 1b ───────────────────────────
+
+### 1b.1 Public κριτικές μαγαζιού (χωρίς token) → 200
+GET http://localhost:8080/api/reviews/recent
+
+> {%
+    client.test("1b.1 GET /api/reviews/recent → 200, σύνοψη + λίστα", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+        var b = response.body;
+        client.assert(b.recentReviews.length <= 20, "Πάνω από 20 κριτικές (όριο Top20)");
+        client.assert(b.reviewCount >= b.recentReviews.length, "reviewCount < μήκος λίστας");
+        if (b.reviewCount > 0) {
+            client.assert(b.averageRating >= 1 && b.averageRating <= 5, "averageRating εκτός 1-5");
+        } else {
+            client.assert(b.averageRating === null, "0 κριτικές αλλά averageRating ≠ null (D110)");
+        }
+    });
+%}
+
+
+### 1b.2 Αρνητικό: το permitAll ΔΕΝ άνοιξε το /api/reviews/me → 401/403
+GET http://localhost:8080/api/reviews/me
+
+> {%
+    client.test("1b.2 GET /api/reviews/me χωρίς token → 401/403", function () {
+        client.assert(response.status === 401 || response.status === 403,
+            "Expected 401/403, got " + response.status);
+    });
+%}
+
+
+# ─────────────────────────── ΒΗΜΑ 2b ───────────────────────────
+
+### 2b.1 Πρόοδος Κατερίνας (τρέχουσα κατάσταση)
+GET http://localhost:8080/api/loyalty/me
+Authorization: Bearer {{katerinaToken}}
+
+> {%
+    client.test("2b.1 GET /api/loyalty/me → 200, progress = completed % N", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+        var b = response.body;
+        client.assert(b.progress === b.completedVisits % b.visitsRequired,
+            "progress (" + b.progress + ") ≠ completedVisits % visitsRequired");
+        if (!b.enabled) {
+            client.assert(b.availableRewards === 0, "Disabled αλλά availableRewards ≠ 0");
+        }
+    });
+%}
+
+
+### 2b.2 Αρνητικό: χωρίς token → 401/403
+GET http://localhost:8080/api/loyalty/me
+
+> {%
+    client.test("2b.2 GET /api/loyalty/me χωρίς token → 401/403", function () {
+        client.assert(response.status === 401 || response.status === 403,
+            "Expected 401/403, got " + response.status);
+    });
+%}
+
+
+# ─────────────────────────── ΒΗΜΑ 2c ───────────────────────────
+
+### 2c.1 Admin settings: υπάρχουν τα 3 νέα πεδία
+GET http://localhost:8080/api/admin/settings
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("2c.1 GET /api/admin/settings → 200 + loyalty πεδία", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+        var b = response.body;
+        client.assert(b.hasOwnProperty("loyaltyEnabled"), "Λείπει loyaltyEnabled");
+        client.assert(b.hasOwnProperty("loyaltyVisitsRequired"), "Λείπει loyaltyVisitsRequired");
+        client.assert(b.hasOwnProperty("loyaltyDiscountPercent"), "Λείπει loyaltyDiscountPercent");
+    });
+%}
+
+
+### 2c.2 Ενεργοποίηση με N=5, 20% (η Κατερίνα έχει 5 → κερδίζει 1)
+PUT http://localhost:8080/api/admin/settings/loyalty
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "enabled": true,
+  "visitsRequired": 5,
+  "discountPercent": 20
+}
+
+> {%
+    client.test("2c.2 PUT loyalty → 200, αποθηκεύτηκε", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+        client.assert(response.body.loyaltyEnabled === true, "loyaltyEnabled ≠ true");
+        client.assert(response.body.loyaltyVisitsRequired === 5, "loyaltyVisitsRequired ≠ 5");
+        client.assert(response.body.loyaltyDiscountPercent === 20, "loyaltyDiscountPercent ≠ 20");
+    });
+%}
+
+
+### 2c.3 Validation: visitsRequired = 1 → 400
+PUT http://localhost:8080/api/admin/settings/loyalty
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "enabled": true,
+  "visitsRequired": 1,
+  "discountPercent": 20
+}
+
+> {%
+    client.test("2c.3 visitsRequired=1 → 400 + fieldErrors.visitsRequired", function () {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+        var fe = response.body.fieldErrors;
+        client.assert(fe && fe.visitsRequired, "Λείπει fieldErrors.visitsRequired");
+    });
+%}
+
+
+### 2c.4 Validation: discountPercent = 150 → 400
+PUT http://localhost:8080/api/admin/settings/loyalty
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "enabled": true,
+  "visitsRequired": 5,
+  "discountPercent": 150
+}
+
+> {%
+    client.test("2c.4 discountPercent=150 → 400 + fieldErrors.discountPercent", function () {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+        var fe = response.body.fieldErrors;
+        client.assert(fe && fe.discountPercent, "Λείπει fieldErrors.discountPercent");
+    });
+%}
+
+
+### 2c.5 Validation: λείπει το "enabled" → 400 (γι' αυτό Boolean και όχι boolean στο DTO)
+PUT http://localhost:8080/api/admin/settings/loyalty
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "visitsRequired": 5,
+  "discountPercent": 20
+}
+
+> {%
+    client.test("2c.5 χωρίς enabled → 400 + fieldErrors.enabled", function () {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+        var fe = response.body.fieldErrors;
+        client.assert(fe && fe.enabled, "Λείπει fieldErrors.enabled");
+    });
+%}
+
+
+### 2c.6 Security: πελάτης στο admin endpoint → 403
+PUT http://localhost:8080/api/admin/settings/loyalty
+Authorization: Bearer {{katerinaToken}}
+Content-Type: application/json
+
+{
+  "enabled": true,
+  "visitsRequired": 5,
+  "discountPercent": 20
+}
+
+> {%
+    client.test("2c.6 Customer → PUT loyalty → 403", function () {
+        client.assert(response.status === 403, "Expected 403, got " + response.status);
+    });
+%}
+
+
+### 2c.7 Η αλλαγή ισχύει ΑΜΕΣΩΣ, χωρίς restart (D150) + derived μοντέλο
+# ΣΗΜ.: ο έλεγχος availableRewards = floor(completed/5) ισχύει ΜΟΝΟ πριν
+# χρησιμοποιηθεί κάποια έκπτωση (δηλαδή πριν το Βήμα 2d).
+GET http://localhost:8080/api/loyalty/me
+Authorization: Bearer {{katerinaToken}}
+
+> {%
+    client.test("2c.7 Κατερίνα: enabled, N=5, επιβράβευση διαθέσιμη", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+        var b = response.body;
+        client.assert(b.enabled === true, "enabled ≠ true (cache; restart;)");
+        client.assert(b.visitsRequired === 5, "visitsRequired ≠ 5");
+        client.assert(b.progress === b.completedVisits % 5, "progress ≠ completedVisits % 5");
+        client.assert(b.availableRewards === Math.floor(b.completedVisits / 5),
+            "availableRewards (" + b.availableRewards + ") ≠ floor(completed/5)");
+    });
+%}

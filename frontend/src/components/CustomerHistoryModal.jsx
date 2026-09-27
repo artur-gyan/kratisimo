@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { adminCustomerService } from '../services/adminCustomerService';
+import DiscountedPrice from './DiscountedPrice';
 
 const STATUS_LABELS = {
     CONFIRMED: 'Προγραμματισμένο',
@@ -77,7 +78,10 @@ export default function CustomerHistoryModal({ customer, onClose }) {
                                     </div>
                                     <p className="text-slate/70 text-sm">{a.employeeName}</p>
                                     <p className="text-slate/50 text-xs mt-0.5">{a.serviceNames.join(', ')}</p>
-                                    <p className="text-slate/60 text-sm mt-1">{Number(a.totalPrice).toFixed(2)} €</p>
+                                    {/* ΝΕΟ (2f-2): τιμή με έκπτωση επιβράβευσης (αν υπάρχει) */}
+                                    <div className="mt-1.5">
+                                        <DiscountedPrice appointment={a} size="sm" />
+                                    </div>
                                 </div>
                             ))}
                         </div>

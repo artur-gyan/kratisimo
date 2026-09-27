@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { adminAppointmentService } from '../services/adminAppointmentService';
+import DiscountedPrice from './DiscountedPrice';
 
 const STATUS_CONFIG = {
     COMPLETED: { label: 'Ολοκληρωμένο', dot: 'bg-success', text: 'text-success' },
@@ -20,10 +21,6 @@ function formatTime(instant) {
     return new Date(instant).toLocaleTimeString('el-GR', {
         hour: '2-digit', minute: '2-digit',
     });
-}
-
-function formatMoney(value) {
-    return (Number(value) || 0).toFixed(2) + ' €';
 }
 
 export default function AppointmentDetailModal({ appointment, onClose, onChanged, onReschedule }) {
@@ -98,7 +95,7 @@ export default function AppointmentDetailModal({ appointment, onClose, onChanged
                         </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-3 border-t border-slate/10">
+                    <div className="flex items-start justify-between pt-3 border-t border-slate/10">
                         <div>
                             <p className="text-slate/50 text-xs">Διάρκεια</p>
                             <p className="text-slate text-sm font-medium">
@@ -106,10 +103,9 @@ export default function AppointmentDetailModal({ appointment, onClose, onChanged
                             </p>
                         </div>
                         <div className="text-right">
-                            <p className="text-slate/50 text-xs">Σύνολο</p>
-                            <p className="text-slate text-base font-semibold">
-                                {formatMoney(appointment.totalPrice)}
-                            </p>
+                            <p className="text-slate/50 text-xs mb-0.5">Σύνολο</p>
+                            {/* ΝΕΟ (2f-2): υποσύνολο διαγραμμένο + τελική τιμή + ετικέτα έκπτωσης */}
+                            <DiscountedPrice appointment={appointment} layout="stack" />
                         </div>
                     </div>
 

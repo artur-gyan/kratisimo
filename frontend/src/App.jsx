@@ -15,6 +15,9 @@ import AdminSettingsPage from './pages/AdminSettingsPage';
 import AdminEmployeesPage from './pages/AdminEmployeesPage';
 import EmployeePage from './pages/EmployeePage';
 import AdminCustomersPage from './pages/AdminCustomersPage';
+import ServicesPage from './pages/ServicesPage';
+import TeamPage from './pages/TeamPage';
+import ReviewsPage from './pages/ReviewsPage';
 
 /**
  * Το "/" προσαρμόζεται στον ρόλο:
@@ -67,6 +70,9 @@ function App() {
                             }
                         />
                         <Route path="/register" element={<RegisterPage />} />
+                        <Route path="/services" element={<ServicesPage />} />
+                        <Route path="/team" element={<TeamPage />} />
+                        <Route path="/reviews" element={<ReviewsPage />} />
                         <Route
                             path="/admin/appointments"
                             element={
