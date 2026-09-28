@@ -4,6 +4,7 @@ import com.github.arturgyan.kratisimo.dto.AdminAppointmentResponse;
 import com.github.arturgyan.kratisimo.dto.AdminCustomerResponse;
 import com.github.arturgyan.kratisimo.dto.AdminCustomerUpdateRequest;
 import com.github.arturgyan.kratisimo.dto.CustomerResponse;
+import com.github.arturgyan.kratisimo.dto.LoyaltyResponse;
 import com.github.arturgyan.kratisimo.repository.UserRepository;
 import com.github.arturgyan.kratisimo.service.AdminCustomerService;
 import jakarta.validation.Valid;
@@ -39,14 +40,14 @@ public class AdminCustomerController {
                 .toList();
     }
 
-    // ── ΝΕΟ: πλήρης λίστα για τη σελίδα διαχείρισης (AdminCustomerResponse). ──
+    // ── Πλήρης λίστα για τη σελίδα διαχείρισης (AdminCustomerResponse + loyalty). ──
     // GET /api/admin/customers/all
     @GetMapping("/all")
     public List<AdminCustomerResponse> getAll() {
         return adminCustomerService.getAllCustomers();
     }
 
-    // ── ΝΕΟ: πλούσιο search (για τη σελίδα, με email/active). ──
+    // ── Πλούσιο search (για τη σελίδα, με email/active/loyalty). ──
     // GET /api/admin/customers/manage?q=...
     @GetMapping("/manage")
     public List<AdminCustomerResponse> searchForManagement(
@@ -57,14 +58,14 @@ public class AdminCustomerController {
         return adminCustomerService.search(q);
     }
 
-    // ── ΝΕΟ: update στοιχείων (fullName + phone μόνο). ──
+    // ── Update στοιχείων (fullName + phone μόνο). ──
     @PutMapping("/{id}")
     public AdminCustomerResponse update(@PathVariable Long id,
                                         @Valid @RequestBody AdminCustomerUpdateRequest request) {
         return adminCustomerService.update(id, request);
     }
 
-    // ── ΝΕΟ: ενεργοποίηση/απενεργοποίηση (active toggle, D131 μοτίβο). ──
+    // ── Ενεργοποίηση/απενεργοποίηση (active toggle, D131 μοτίβο). ──
     @PostMapping("/{id}/activate")
     public void activate(@PathVariable Long id) {
         adminCustomerService.setActive(id, true);
@@ -75,9 +76,16 @@ public class AdminCustomerController {
         adminCustomerService.setActive(id, false);
     }
 
-    // ── ΝΕΟ: ιστορικό ραντεβού πελάτη. ──
+    // ── Ιστορικό ραντεβού πελάτη. ──
     @GetMapping("/{id}/appointments")
     public List<AdminAppointmentResponse> getHistory(@PathVariable Long id) {
         return adminCustomerService.getCustomerHistory(id);
+    }
+
+    // ── ΝΕΟ (2e): πρόοδος επιβράβευσης ενός πελάτη («Νέο ραντεβού»). ──
+    // GET /api/admin/customers/{id}/loyalty — ADMIN (μέσω /api/admin/**).
+    @GetMapping("/{id}/loyalty")
+    public LoyaltyResponse getLoyalty(@PathVariable Long id) {
+        return adminCustomerService.getLoyalty(id);
     }
 }

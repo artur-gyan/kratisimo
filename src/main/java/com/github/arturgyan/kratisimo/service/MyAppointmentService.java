@@ -48,6 +48,9 @@ public class MyAppointmentService {
      * ownership (403) → status (400) → χρόνος (400).
      * Soft cancel (D20): status→CANCELLED + cancelledAt. Το CANCELLED ΔΕΝ
      * μπλοκάρει χρόνο → το slot ελευθερώνεται αυτόματα.
+     * Loyalty: το CANCELLED δεν μετράει στις "χρησιμοποιημένες" → αν το ραντεβού
+     * είχε έκπτωση, η επιβράβευση επιστρέφει ΑΥΤΟΜΑΤΑ (derived μοντέλο) —
+     * ΚΑΜΙΑ γραμμή κώδικα εδώ γι' αυτό.
      */
     @Transactional
     public void cancelAppointment(Long appointmentId, Long customerId, String reason) {
@@ -103,6 +106,8 @@ public class MyAppointmentService {
                 a.getEmployee().getUser().getFullName(),  // ασυμμετρία FK
                 serviceNames,
                 a.getTotalPrice(),
+                a.getDiscountPercent(),   // ΝΕΟ (2e) — snapshot
+                a.getDiscountAmount(),    // ΝΕΟ (2e)
                 a.getStatus().name(),
                 canCancel,
                 canReview

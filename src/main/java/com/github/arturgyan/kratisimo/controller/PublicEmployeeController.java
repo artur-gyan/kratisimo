@@ -19,17 +19,21 @@ public class PublicEmployeeController {
 
     /**
      * GET /api/employees/available?serviceIds=1,2,3
-     *
-     * Public (permitAll): ο ανώνυμος βλέπει υπαλλήλους στο βήμα 2 της
-     * κράτησης, ΠΡΙΝ κάνει login (D51 — guest booking flow).
-     *
-     * serviceIds ως query param: το Spring παρσάρει "1,2,3" σε List<Long>
-     * αυτόματα (comma-separated → λίστα).
+     * Public: βήμα 2 της κράτησης (D51). Υπάλληλοι που κάνουν ΟΛΕΣ τις υπηρεσίες.
      */
     @GetMapping("/api/employees/available")
     public List<PublicEmployeeResponse> getAvailableEmployees(
             @RequestParam List<Long> serviceIds) {
-
         return publicEmployeeService.findAvailableForServices(serviceIds);
+    }
+
+    /**
+     * GET /api/employees — ΝΕΟ.
+     * Public: σελίδα "Η ομάδα μας" + landing. Όλοι οι ενεργοί + bio + βαθμολογία.
+     * Ίδιος controller με το /available: ίδιο επίπεδο πρόσβασης (D119).
+     */
+    @GetMapping("/api/employees")
+    public List<PublicEmployeeResponse> getAllActiveEmployees() {
+        return publicEmployeeService.findAllActive();
     }
 }

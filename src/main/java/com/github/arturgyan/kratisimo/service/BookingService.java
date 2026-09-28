@@ -31,6 +31,7 @@ public class BookingService {
     private final ApplicationEventPublisher eventPublisher;
     private final AvailabilityService availabilityService;
     private final SettingsProvider settingsProvider;
+    private final LoyaltyService loyaltyService;
 
     public BookingService(ServiceOfferingRepository serviceOfferingRepository,
                           EmployeeProfileRepository employeeProfileRepository,
@@ -38,7 +39,8 @@ public class BookingService {
                           UserRepository userRepository,
                           ApplicationEventPublisher eventPublisher,
                           AvailabilityService availabilityService,
-                          SettingsProvider settingsProvider) {
+                          SettingsProvider settingsProvider,
+                          LoyaltyService loyaltyService) {
         this.serviceOfferingRepository = serviceOfferingRepository;
         this.employeeProfileRepository = employeeProfileRepository;
         this.appointmentRepository = appointmentRepository;
@@ -46,6 +48,7 @@ public class BookingService {
         this.eventPublisher = eventPublisher;
         this.availabilityService = availabilityService;
         this.settingsProvider = settingsProvider;
+        this.loyaltyService = loyaltyService;
     }
 
     @Transactional
@@ -162,21 +165,25 @@ public class BookingService {
             throw new SlotUnavailableException("This time slot is no longer available");
         }
 
-        BigDecimal totalPrice = services.stream()
+        // subtotal = τιμή καταλόγου = Σ priceSnapshot των items.
+        BigDecimal subtotal = services.stream()
                 .map(ServiceOffering::getPrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         Appointment appointment = new Appointment();
         User customer = userRepository.findById(customerId)
                 .orElseThrow(() -> new IllegalStateException("Customer not found"));
-        appointment.setCustomer(customer);
+        appointment.setCustomer(customer);   // ΠΡΙΝ το applyLoyaltyPricing (το χρειάζεται)
 
         appointment.setEmployee(employee);
         appointment.setStartsAt(startsAt);
         appointment.setEndsAt(endsAt);
         appointment.setStatus(AppointmentStatus.CONFIRMED);
-        appointment.setTotalPrice(totalPrice);
         appointment.setTotalDurationMinutes(effectiveDuration);
+
+        // ── ΑΛΛΑΓΗ (D173): δώρο + % + ποσό έκπτωσης + τελική τιμή, σε ΕΝΑ σημείο ──
+        // Ο κανόνας τιμολόγησης ζει στον LoyaltyService — ίδια κλήση και στο adminBook().
+        loyaltyService.applyLoyaltyPricing(appointment, subtotal);
 
         int sortOrder = 0;
         for (ServiceOffering service : services) {
@@ -202,7 +209,7 @@ public class BookingService {
                 employeeName,
                 saved.getStartsAt(),
                 serviceNames,
-                saved.getTotalPrice()
+                saved.getTotalPrice()   // ήδη μετά την έκπτωση → το email δείχνει τη σωστή τιμή
         );
         eventPublisher.publishEvent(event);
 
@@ -212,6 +219,8 @@ public class BookingService {
                 saved.getStartsAt(),
                 saved.getEndsAt(),
                 saved.getTotalPrice(),
+                saved.getDiscountPercent(),
+                saved.getDiscountAmount(),
                 saved.getTotalDurationMinutes(),
                 saved.getStatus().name(),
                 serviceNames
@@ -321,7 +330,7 @@ public class BookingService {
             throw new SlotUnavailableException("This time slot is no longer available");
         }
 
-        BigDecimal totalPrice = services.stream()
+        BigDecimal subtotal = services.stream()
                 .map(ServiceOffering::getPrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -342,8 +351,12 @@ public class BookingService {
         appointment.setStartsAt(startsAt);
         appointment.setEndsAt(endsAt);
         appointment.setStatus(AppointmentStatus.CONFIRMED);
-        appointment.setTotalPrice(totalPrice);
         appointment.setTotalDurationMinutes(effectiveDuration);
+
+        // ── ΑΛΛΑΓΗ (D173): ίδια κλήση με το book(). Walk-in (customer == null) → 0%
+        // (χωρίς λογαριασμό, εκτός προγράμματος — D139). Εγγεγραμμένος → ό,τι θα έπαιρνε
+        // και μόνος του: ο admin κλείνει ΕΚ ΜΕΡΟΥΣ του.
+        loyaltyService.applyLoyaltyPricing(appointment, subtotal);
 
         int sortOrder = 0;
         for (ServiceOffering service : services) {
@@ -380,6 +393,8 @@ public class BookingService {
                 saved.getStartsAt(),
                 saved.getEndsAt(),
                 saved.getTotalPrice(),
+                saved.getDiscountPercent(),
+                saved.getDiscountAmount(),
                 saved.getTotalDurationMinutes(),
                 saved.getStatus().name(),
                 serviceNames

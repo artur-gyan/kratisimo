@@ -1,5 +1,6 @@
 package com.github.arturgyan.kratisimo.controller;
 
+import com.github.arturgyan.kratisimo.dto.LoyaltySettingsRequest;
 import com.github.arturgyan.kratisimo.dto.SettingsRequest;
 import com.github.arturgyan.kratisimo.dto.SettingsResponse;
 import com.github.arturgyan.kratisimo.service.SettingsService;
@@ -14,6 +15,12 @@ public class SettingsController {
 
     public SettingsController(SettingsService settingsService) {
         this.settingsService = settingsService;
+    }
+
+    /** PUT /api/admin/settings/loyalty — ADMIN (μέσω /api/admin/**). */
+    @PutMapping("/loyalty")
+    public SettingsResponse updateLoyalty(@Valid @RequestBody LoyaltySettingsRequest request) {
+        return settingsService.updateLoyalty(request);
     }
 
     @GetMapping

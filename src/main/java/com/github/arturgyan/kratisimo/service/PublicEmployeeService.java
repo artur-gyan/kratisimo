@@ -26,13 +26,8 @@ public class PublicEmployeeService {
     }
 
     /**
-     * Υπάλληλοι (active) που προσφέρουν ΟΛΕΣ τις ζητούμενες υπηρεσίες,
-     * μαζί με τη βαθμολογία τους (average + count).
-     * Επαναχρησιμοποιεί το ΙΔΙΟ query που τρέχει το least-loaded (D89):
-     * findByOfferingAllServices (JOIN + GROUP BY + HAVING COUNT = size).
-     *
-     * @Transactional(readOnly=true): μόνο διαβάζουμε. Το DTO χτίζεται ΜΕΣΑ στο
-     * session (getUser() lazy — D87).
+     * [α] Υπάλληλοι (active) που προσφέρουν ΟΛΕΣ τις ζητούμενες υπηρεσίες.
+     * Χρήση: βήμα 2 της κράτησης. Ίδιο query με το least-loaded (D89).
      */
     @Transactional(readOnly = true)
     public List<PublicEmployeeResponse> findAvailableForServices(List<Long> serviceIds) {
@@ -41,30 +36,49 @@ public class PublicEmployeeService {
         Set<Long> uniqueIds = new HashSet<>(serviceIds);
 
         List<EmployeeProfile> employees = employeeProfileRepository
-                .findByOfferingAllServices(
-                        List.copyOf(uniqueIds),
-                        uniqueIds.size());
+                .findByOfferingAllServices(List.copyOf(uniqueIds), uniqueIds.size());
 
-        // ── Batch ratings: ΕΝΑ query για ΟΛΟΥΣ τους υπαλλήλους (αποφυγή N+1) ──
-        // Πρώτα μάζεψε τα ids των υπαλλήλων που βρέθηκαν.
+        return toResponsesWithRatings(employees);
+    }
+
+    /**
+     * [α'] ΟΛΟΙ οι ενεργοί υπάλληλοι, αλφαβητικά.
+     * Χρήση: σελίδα "Η ομάδα μας" + landing. ΔΕΝ φιλτράρει ανά υπηρεσία —
+     * σκοπός η παρουσίαση της ομάδας, όχι η κράτηση.
+     */
+    @Transactional(readOnly = true)
+    public List<PublicEmployeeResponse> findAllActive() {
+        List<EmployeeProfile> employees =
+                employeeProfileRepository.findByActiveTrueOrderByUserFullNameAsc();
+        return toResponsesWithRatings(employees);
+    }
+
+    /**
+     * [β] + [γ] Κοινό κομμάτι: batch ratings (ΕΝΑ query για όλους, D128)
+     * + μετατροπή Entity → DTO.
+     *
+     * Private χωρίς @Transactional: τρέχει ΜΕΣΑ στο transaction της μεθόδου
+     * που την καλεί (findAvailableForServices ή findAllActive). Δεν χρειάζεται
+     * δικό της transaction → η παγίδα self-invocation (D79) δεν μας αφορά.
+     */
+    private List<PublicEmployeeResponse> toResponsesWithRatings(List<EmployeeProfile> employees) {
+
         List<Long> employeeIds = employees.stream()
                 .map(EmployeeProfile::getId)
                 .toList();
 
-        // Το batch query γυρνάει [id, avg, count] μόνο για όσους ΕΧΟΥΝ reviews.
-        // Το μετατρέπουμε σε Map<employeeId, [avg, count]> για O(1) lookup στο mapping.
-        // Guard: αν κανένας υπάλληλος, μη τρέξεις το IN (:employeeIds) με άδεια λίστα.
+        // Batch query: [id, avg, count] μόνο για όσους ΕΧΟΥΝ reviews → Map για O(1) lookup.
+        // Guard: μη τρέξεις IN (:employeeIds) με άδεια λίστα.
         Map<Long, RatingStats> statsById = employeeIds.isEmpty()
                 ? Map.of()
                 : reviewRepository.findAverageRatingsByEmployeeIds(employeeIds).stream()
-                    .collect(Collectors.toMap(
-                            row -> (Long) row[0],                              // employeeId
-                            row -> new RatingStats(
-                                    (Double) row[1],                          // AVG → Double
-                                    ((Long) row[2]).intValue())));            // COUNT → Long → int
+                .collect(Collectors.toMap(
+                        row -> (Long) row[0],                              // employeeId
+                        row -> new RatingStats(
+                                (Double) row[1],                          // AVG → Double
+                                ((Long) row[2]).intValue())));            // COUNT → int
 
-        // Entity → DTO. Lookup στο Map: αν ο υπάλληλος ΔΕΝ έχει reviews, δεν
-        // υπάρχει κλειδί → average null, count 0 (D110: null όχι 0 για τον μέσο όρο).
+        // Entity → DTO. Χωρίς reviews → average null, count 0 (D110).
         return employees.stream()
                 .map(e -> {
                     RatingStats stats = statsById.get(e.getId());
@@ -75,13 +89,13 @@ public class PublicEmployeeService {
                             e.getId(),
                             e.getUser().getFullName(),
                             e.getPhotoUrl(),
+                            e.getBio(),          // ΝΕΟ πεδίο
                             avg,
                             count);
                 })
                 .toList();
     }
 
-    // Εσωτερικό record μόνο για να κρατάμε [avg, count] μαζί στο Map (πιο καθαρό
-    // από Object[] ή δύο ξεχωριστά Maps). Ζει μόνο εδώ — δεν είναι DTO.
+    // Εσωτερικό record για [avg, count] στο Map. Ζει μόνο εδώ — δεν είναι DTO.
     private record RatingStats(Double average, int count) {}
 }

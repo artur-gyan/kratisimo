@@ -71,4 +71,37 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
     List<Appointment> findByStatusInRange(@Param("status") AppointmentStatus status,
                                           @Param("from") Instant from,
                                           @Param("to") Instant to);
+
+    // ── Loyalty (D173): σφραγίδες ανά πελάτη, για ΕΝΑΝ ή ΠΟΛΛΟΥΣ σε ΕΝΑ query (D128) ──
+    // Χωρίς φίλτρο status: το CHECK loyalty_stamp_only_completed_customer (V8)
+    // εγγυάται ότι σφραγίδα έχουν ΜΟΝΟ COMPLETED ραντεβού εγγεγραμμένων πελατών.
+    //
+    // Γιατί ΞΕΧΩΡΙΣΤΟ query από τα δώρα (LoyaltyRewardRepository) και όχι JOIN:
+    // JOIN δύο "πολλά" πλευρών = fan-out (7 σφραγίδες × 2 δώρα = 14 γραμμές)
+    // → λάθος COUNT/SUM (ίδιο πρόβλημα με D101/D165). Δύο μικρά aggregates = σωστά.
+    @Query("""
+            SELECT a.customer.id AS customerId, COUNT(a) AS stamps
+            FROM Appointment a
+            WHERE a.loyaltyStamp = true AND a.customer.id IN :customerIds
+            GROUP BY a.customer.id
+            """)
+    List<StampCountProjection> countStampsByCustomer(@Param("customerIds") List<Long> customerIds);
+
+    // ── ΝΕΟ (D175): ίδιο, για ΟΛΟΥΣ όσους έχουν έστω μία σφραγίδα ──
+    // Για την αλλαγή ρυθμίσεων: ποιοι μπορεί να φτάνουν πλέον τον (μειωμένο) στόχο.
+    // Πελάτες χωρίς σφραγίδα δεν επιστρέφονται → δεν μπορούν να κερδίσουν τίποτα.
+    @Query("""
+            SELECT a.customer.id AS customerId, COUNT(a) AS stamps
+            FROM Appointment a
+            WHERE a.loyaltyStamp = true
+            GROUP BY a.customer.id
+            """)
+    List<StampCountProjection> countStampsForAllCustomers();
+
+    interface StampCountProjection {
+        Long getCustomerId();
+        long getStamps();
+    }
+
+    // ΑΦΑΙΡΕΘΗΚΕ (D173): findLoyaltyCounts + LoyaltyCountsProjection (derived μοντέλο D168).
 }

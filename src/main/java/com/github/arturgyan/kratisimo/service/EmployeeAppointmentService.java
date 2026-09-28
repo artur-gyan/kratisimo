@@ -1,8 +1,6 @@
 package com.github.arturgyan.kratisimo.service;
 
 import com.github.arturgyan.kratisimo.dto.AdminAppointmentResponse;
-import com.github.arturgyan.kratisimo.entity.Appointment;
-import com.github.arturgyan.kratisimo.entity.AppointmentItem;
 import com.github.arturgyan.kratisimo.entity.EmployeeProfile;
 import com.github.arturgyan.kratisimo.exception.ForbiddenException;
 import com.github.arturgyan.kratisimo.repository.AppointmentRepository;
@@ -51,31 +49,7 @@ public class EmployeeAppointmentService {
 
         return appointmentRepository
                 .findByEmployeeInRange(profile.getId(), fromInstant, toInstant).stream()
-                .map(this::toResponse)
+                .map(AdminAppointmentResponse::from)   // ΑΛΛΑΓΗ (2e): ενιαίο mapping
                 .toList();
-    }
-
-    private AdminAppointmentResponse toResponse(Appointment a) {
-        List<String> serviceNames = a.getItems().stream()
-                .map(AppointmentItem::getService)
-                .map(s -> s.getName())
-                .toList();
-
-        String customerName = (a.getCustomer() != null)
-                ? a.getCustomer().getFullName()
-                : a.getGuestName();
-
-        return new AdminAppointmentResponse(
-                a.getId(),
-                a.getEmployee().getId(),
-                customerName,
-                a.getEmployee().getUser().getFullName(),
-                a.getStartsAt(),
-                a.getEndsAt(),
-                a.getStatus(),
-                a.getTotalPrice(),
-                a.getTotalDurationMinutes(),
-                serviceNames
-        );
     }
 }

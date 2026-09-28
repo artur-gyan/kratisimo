@@ -4,6 +4,7 @@ import com.github.arturgyan.kratisimo.entity.EmployeeProfile;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.EntityGraph;
 
 import java.util.List;
 import java.util.Optional;
@@ -22,6 +23,10 @@ public interface EmployeeProfileRepository extends JpaRepository<EmployeeProfile
     List<EmployeeProfile> findByOfferingAllServices(
             @Param("serviceIds") List<Long> serviceIds,
             @Param("count") long count);
+
+    // Όλοι οι ενεργοί, αλφαβητικά, ΜΑΖΙ με τον User σε ΕΝΑ query.
+    @EntityGraph(attributePaths = "user")
+    List<EmployeeProfile> findByActiveTrueOrderByUserFullNameAsc();
 
     List<EmployeeProfile> findByActiveTrue();
 

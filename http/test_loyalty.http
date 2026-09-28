@@ -1,14 +1,16 @@
 # ═══════════════════════════════════════════════════════════════════════
-# Kratisimo — Chat 16 smoke tests (Βήματα 1a, 1b, 2b, 2c)
+# Kratisimo — Επιβράβευση (D167–D175) + δημόσιες σελίδες (D164–D166)
 #
-# ΠΩΣ ΤΡΕΧΕΙ: άνοιξε το αρχείο στο IntelliJ → κουμπί "Run All Requests" (⏩)
-# πάνω από το πρώτο request. Τα αποτελέσματα των ελέγχων εμφανίζονται στο
-# παράθυρο "Services" → καρτέλα "Tests" (πράσινο ✓ / κόκκινο ✗).
+# ΠΩΣ ΤΡΕΧΕΙ: IntelliJ → "Run All Requests" (⏩). Αποτελέσματα: Services → Tests.
+# Τα tokens/ids κρατιούνται ΜΟΝΟ στη μνήμη του IntelliJ (client.global) → ασφαλές για commit.
 #
-# Τα tokens κρατιούνται ΜΟΝΟ στη μνήμη του IntelliJ (client.global) —
-# δεν γράφεται κανένα token σε αυτό το αρχείο → ασφαλές για commit.
+# Ενότητα 3 (ledger, D173): ΔΕΝ υποθέτει αρχική κατάσταση. Διαβάζει την κατάσταση
+# της Κατερίνας, κάνει μια ενέργεια και ελέγχει τη ΔΙΑΦΟΡΑ → τρέχει ξανά και ξανά.
+# Οι κρατήσεις μπαίνουν σε ΤΥΧΑΙΑ μέρα 3+ χρόνια μπροστά → καμία σύγκρουση ωραρίου.
+# Γράφει δεδομένα (ραντεβού + δώρα της Κατερίνας)· στο τέλος: ενεργό, N=5, 20%.
 #
-# ΠΡΟΣΟΧΗ: το 2c.2 ΕΝΕΡΓΟΠΟΙΕΙ το πρόγραμμα με N=5 (σκόπιμα, για το Βήμα 2d).
+# Τι ΔΕΝ ελέγχεται εδώ: ταυτόχρονες συναλλαγές (D176) — διαδοχικά requests δεν
+# τρέχουν ποτέ ταυτόχρονα. Το δίχτυ της βάσης ελέγχεται στο v8_constraint_checks.sql.
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -25,7 +27,7 @@ Content-Type: application/json
     client.test("0.1 Admin login → 200", function () {
         client.assert(response.status === 200, "Expected 200, got " + response.status);
     });
-    client.global.set("adminToken", response.body.token || response.body.accessToken);
+    client.global.set("adminToken", response.body["token"] || response.body["accessToken"]);
 %}
 
 
@@ -42,11 +44,9 @@ Content-Type: application/json
     client.test("0.2 Customer login → 200", function () {
         client.assert(response.status === 200, "Expected 200, got " + response.status);
     });
-    client.global.set("katerinaToken", response.body.token || response.body.accessToken);
+    client.global.set("katerinaToken", response.body["token"] || response.body["accessToken"]);
 %}
 
-
-# ─────────────────────────── ΒΗΜΑ 1a ───────────────────────────
 
 ### 1a.1 Public λίστα υπαλλήλων (χωρίς token) → 200 + bio
 GET http://localhost:8080/api/employees
@@ -58,10 +58,9 @@ GET http://localhost:8080/api/employees
         client.assert(response.body[0].hasOwnProperty("bio"), "Λείπει το πεδίο bio");
         client.assert(response.body[0].hasOwnProperty("averageRating"), "Λείπει το averageRating");
     });
+    client.global.set("employeeId", String(response.body[0].id));
 %}
 
-
-# ─────────────────────────── ΒΗΜΑ 1b ───────────────────────────
 
 ### 1b.1 Public κριτικές μαγαζιού (χωρίς token) → 200
 GET http://localhost:8080/api/reviews/recent
@@ -69,7 +68,7 @@ GET http://localhost:8080/api/reviews/recent
 > {%
     client.test("1b.1 GET /api/reviews/recent → 200, σύνοψη + λίστα", function () {
         client.assert(response.status === 200, "Expected 200, got " + response.status);
-        var b = response.body;
+        const b = response.body;
         client.assert(b.recentReviews.length <= 20, "Πάνω από 20 κριτικές (όριο Top20)");
         client.assert(b.reviewCount >= b.recentReviews.length, "reviewCount < μήκος λίστας");
         if (b.reviewCount > 0) {
@@ -92,20 +91,48 @@ GET http://localhost:8080/api/reviews/me
 %}
 
 
-# ─────────────────────────── ΒΗΜΑ 2b ───────────────────────────
+### 1c.1 Setup: υπηρεσία για τις κρατήσεις της ενότητας 3 + 5 μελλοντικές ώρες (μία ανά μέρα)
+GET http://localhost:8080/api/services
 
-### 2b.1 Πρόοδος Κατερίνας (τρέχουσα κατάσταση)
+> {%
+    // IIFE: οι μεταβλητές μένουν τοπικές σε αυτό το script
+    (function () {
+        client.test("1c.1 GET /api/services → 200 + ενεργή υπηρεσία", function () {
+            client.assert(response.status === 200, "Expected 200, got " + response.status);
+            client.assert(response.body.some(function (x) { return x.active !== false; }),
+                "Καμία ενεργή υπηρεσία");
+        });
+        const service = response.body.find(function (x) { return x.active !== false; });
+        client.global.set("serviceId", String(service.id));
+        client.global.set("servicePrice", String(service.price));
+
+        const base = new Date();
+        // Διαφορετική μέρα σε ΚΑΘΕ εκτέλεση: δευτερόλεπτα του ρολογιού mod 20000 (~55 χρόνια).
+        // Όχι Math.random: στην 1η εκτέλεση έδωσε offset 0 → ίδιες ώρες σε κάθε run → 409.
+        base.setUTCFullYear(base.getUTCFullYear() + 3);
+        base.setUTCDate(base.getUTCDate() + Math.floor(Date.now() / 1000) % 20000);
+        base.setUTCHours(10, 0, 0, 0);
+        for (let i = 1; i <= 5; i++) {
+            const d = new Date(base.getTime() + i * 24 * 3600 * 1000);
+            client.global.set("slot" + i, d.toISOString());
+        }
+    })();
+%}
+
+
+### 2b.1 Πρόοδος Κατερίνας (όποια κι αν είναι η τρέχουσα κατάσταση)
 GET http://localhost:8080/api/loyalty/me
 Authorization: Bearer {{katerinaToken}}
 
 > {%
-    client.test("2b.1 GET /api/loyalty/me → 200, progress = completed % N", function () {
+    client.test("2b.1 GET /api/loyalty/me → 200 + συνεπή πεδία", function () {
         client.assert(response.status === 200, "Expected 200, got " + response.status);
-        var b = response.body;
-        client.assert(b.progress === b.completedVisits % b.visitsRequired,
-            "progress (" + b.progress + ") ≠ completedVisits % visitsRequired");
+        const b = response.body;
+        client.assert(b.hasOwnProperty("nextRewardPercent"), "Λείπει nextRewardPercent (D173)");
+        client.assert(b.progress >= 0 && b.progress <= b.visitsRequired, "progress εκτός 0..N");
         if (!b.enabled) {
-            client.assert(b.availableRewards === 0, "Disabled αλλά availableRewards ≠ 0");
+            client.assert(b.availableRewards === 0, "Ανενεργό αλλά availableRewards ≠ 0 (κανόνας 7)");
+            client.assert(b.nextRewardPercent === 0, "Ανενεργό αλλά nextRewardPercent ≠ 0");
         }
     });
 %}
@@ -122,16 +149,14 @@ GET http://localhost:8080/api/loyalty/me
 %}
 
 
-# ─────────────────────────── ΒΗΜΑ 2c ───────────────────────────
-
-### 2c.1 Admin settings: υπάρχουν τα 3 νέα πεδία
+### 2c.1 Admin settings: υπάρχουν τα 3 πεδία επιβράβευσης
 GET http://localhost:8080/api/admin/settings
 Authorization: Bearer {{adminToken}}
 
 > {%
     client.test("2c.1 GET /api/admin/settings → 200 + loyalty πεδία", function () {
         client.assert(response.status === 200, "Expected 200, got " + response.status);
-        var b = response.body;
+        const b = response.body;
         client.assert(b.hasOwnProperty("loyaltyEnabled"), "Λείπει loyaltyEnabled");
         client.assert(b.hasOwnProperty("loyaltyVisitsRequired"), "Λείπει loyaltyVisitsRequired");
         client.assert(b.hasOwnProperty("loyaltyDiscountPercent"), "Λείπει loyaltyDiscountPercent");
@@ -139,7 +164,7 @@ Authorization: Bearer {{adminToken}}
 %}
 
 
-### 2c.2 Ενεργοποίηση με N=5, 20% (η Κατερίνα έχει 5 → κερδίζει 1)
+### 2c.2 Ενεργοποίηση με N=5, 20%
 PUT http://localhost:8080/api/admin/settings/loyalty
 Authorization: Bearer {{adminToken}}
 Content-Type: application/json
@@ -174,7 +199,7 @@ Content-Type: application/json
 > {%
     client.test("2c.3 visitsRequired=1 → 400 + fieldErrors.visitsRequired", function () {
         client.assert(response.status === 400, "Expected 400, got " + response.status);
-        var fe = response.body.fieldErrors;
+        const fe = response.body.fieldErrors;
         client.assert(fe && fe.visitsRequired, "Λείπει fieldErrors.visitsRequired");
     });
 %}
@@ -194,7 +219,7 @@ Content-Type: application/json
 > {%
     client.test("2c.4 discountPercent=150 → 400 + fieldErrors.discountPercent", function () {
         client.assert(response.status === 400, "Expected 400, got " + response.status);
-        var fe = response.body.fieldErrors;
+        const fe = response.body.fieldErrors;
         client.assert(fe && fe.discountPercent, "Λείπει fieldErrors.discountPercent");
     });
 %}
@@ -213,7 +238,7 @@ Content-Type: application/json
 > {%
     client.test("2c.5 χωρίς enabled → 400 + fieldErrors.enabled", function () {
         client.assert(response.status === 400, "Expected 400, got " + response.status);
-        var fe = response.body.fieldErrors;
+        const fe = response.body.fieldErrors;
         client.assert(fe && fe.enabled, "Λείπει fieldErrors.enabled");
     });
 %}
@@ -237,20 +262,660 @@ Content-Type: application/json
 %}
 
 
-### 2c.7 Η αλλαγή ισχύει ΑΜΕΣΩΣ, χωρίς restart (D150) + derived μοντέλο
-# ΣΗΜ.: ο έλεγχος availableRewards = floor(completed/5) ισχύει ΜΟΝΟ πριν
-# χρησιμοποιηθεί κάποια έκπτωση (δηλαδή πριν το Βήμα 2d).
+### 2c.7 Η αλλαγή ισχύει ΑΜΕΣΩΣ, χωρίς restart (D150) + invariant του settle (D175)
 GET http://localhost:8080/api/loyalty/me
 Authorization: Bearer {{katerinaToken}}
 
 > {%
-    client.test("2c.7 Κατερίνα: enabled, N=5, επιβράβευση διαθέσιμη", function () {
+    client.test("2c.7 Κατερίνα: enabled, N=5, πρόοδος < N", function () {
         client.assert(response.status === 200, "Expected 200, got " + response.status);
-        var b = response.body;
+        const b = response.body;
         client.assert(b.enabled === true, "enabled ≠ true (cache; restart;)");
         client.assert(b.visitsRequired === 5, "visitsRequired ≠ 5");
-        client.assert(b.progress === b.completedVisits % 5, "progress ≠ completedVisits % 5");
-        client.assert(b.availableRewards === Math.floor(b.completedVisits / 5),
-            "availableRewards (" + b.availableRewards + ") ≠ floor(completed/5)");
+        client.assert(b.progress < 5, "Ενεργό αλλά πρόοδος ≥ N: το settle δεν έτρεξε");
+        client.assert((b.availableRewards > 0) === (b.nextRewardPercent > 0),
+            "availableRewards και nextRewardPercent ασυνεπή");
     });
+%}
+
+
+### 2e.1 Τα ραντεβού μου: υπάρχουν τα πεδία έκπτωσης
+GET http://localhost:8080/api/appointments/me
+Authorization: Bearer {{katerinaToken}}
+
+> {%
+    client.test("2e.1 GET /api/appointments/me → πεδία έκπτωσης", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+        client.assert(response.body.length > 0, "Κενή λίστα ραντεβού");
+        const a = response.body[0];
+        client.assert(a.hasOwnProperty("discountPercent"), "Λείπει discountPercent");
+        client.assert(a.hasOwnProperty("discountAmount"), "Λείπει discountAmount");
+    });
+%}
+
+
+### 2e.2 Admin: λίστα πελατών με επιβράβευση (batch: σταθερό πλήθος queries)
+GET http://localhost:8080/api/admin/customers/all
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("2e.2 GET /api/admin/customers/all → loyalty σε κάθε πελάτη", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+        client.assert(response.body.length > 0, "Κενή λίστα πελατών");
+        let katerina = null;
+        for (let i = 0; i < response.body.length; i++) {
+            const c = response.body[i];
+            client.assert(c.loyalty !== null && c.loyalty !== undefined, "Χωρίς loyalty: " + c.email);
+            client.assert(c.loyalty.progress >= 0 && c.loyalty.progress < c.loyalty.visitsRequired,
+                "Πρόοδος εκτός 0..N-1 για " + c.email);
+            if (c.email === "katerina@example.com") {
+                katerina = c;
+            }
+        }
+        client.assert(katerina !== null, "Η Κατερίνα δεν βρέθηκε στη λίστα");
+        client.global.set("katerinaId", String(katerina.id));
+    });
+%}
+
+
+### 2e.3 Admin: επιβράβευση ενός πελάτη (για το «Νέο ραντεβού»)
+GET http://localhost:8080/api/admin/customers/{{katerinaId}}/loyalty
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("2e.3 GET /api/admin/customers/{id}/loyalty → 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+        client.assert(response.body.enabled === true, "enabled ≠ true");
+        client.assert(response.body.visitsRequired === 5, "visitsRequired ≠ 5");
+        client.assert(response.body.hasOwnProperty("nextRewardPercent"), "Λείπει nextRewardPercent");
+    });
+%}
+
+
+### 2e.4 Admin: ανύπαρκτος πελάτης → 400 (όχι ένα παραπλανητικό "0/5")
+GET http://localhost:8080/api/admin/customers/999999/loyalty
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("2e.4 Ανύπαρκτος πελάτης → 400", function () {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+%}
+
+
+### 2e.5 Security: πελάτης στο admin loyalty endpoint → 403
+GET http://localhost:8080/api/admin/customers/{{katerinaId}}/loyalty
+Authorization: Bearer {{katerinaToken}}
+
+> {%
+    client.test("2e.5 Customer → admin loyalty → 403", function () {
+        client.assert(response.status === 403, "Expected 403, got " + response.status);
+    });
+%}
+
+
+### 2e.6 Admin: ιστορικό πελάτη — τα ραντεβού του Chat 16 (έκπτωση ΧΩΡΙΣ δώρο) παραμένουν
+GET http://localhost:8080/api/admin/customers/{{katerinaId}}/appointments
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("2e.6 Ιστορικό Κατερίνας → πεδία έκπτωσης + ένα με 20%", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+        client.assert(response.body.length > 0, "Κενό ιστορικό");
+        let foundDiscounted = false;
+        for (let i = 0; i < response.body.length; i++) {
+            const a = response.body[i];
+            client.assert(a.hasOwnProperty("discountPercent"), "Λείπει discountPercent");
+            client.assert(a.hasOwnProperty("discountAmount"), "Λείπει discountAmount");
+            if (a.discountPercent === 20) {
+                foundDiscounted = true;
+            }
+        }
+        client.assert(foundDiscounted, "Κανένα ραντεβού με 20% (το snapshot D6 χάθηκε;)");
+    });
+%}
+
+
+### 2e.7 Admin: ημερολόγιο (date range) με πεδία έκπτωσης
+GET http://localhost:8080/api/admin/appointments?from=2026-09-01&to=2026-10-31
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("2e.7 GET /api/admin/appointments → πεδία έκπτωσης", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+        client.assert(response.body.length > 0, "Κανένα ραντεβού στο εύρος");
+        client.assert(response.body[0].hasOwnProperty("discountPercent"), "Λείπει discountPercent");
+        client.assert(response.body[0].hasOwnProperty("discountAmount"), "Λείπει discountAmount");
+    });
+%}
+
+
+### 3.0 Ledger: N=2, 20% για γρήγορο κύκλο (το settle τρέχει κατά την αποθήκευση — D175)
+PUT http://localhost:8080/api/admin/settings/loyalty
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "enabled": true,
+  "visitsRequired": 2,
+  "discountPercent": 20
+}
+
+> {%
+    client.test("3.0 PUT loyalty N=2 → 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+%}
+
+
+### 3.1 Αφετηρία: κατάσταση Κατερίνας (όλα τα επόμενα ελέγχουν ΔΙΑΦΟΡΕΣ από εδώ)
+GET http://localhost:8080/api/admin/customers/{{katerinaId}}/loyalty
+Authorization: Bearer {{adminToken}}
+
+> {%
+    // IIFE: οι μεταβλητές μένουν τοπικές σε αυτό το script
+    (function () {
+        const b = response.body;
+        client.test("3.1 Μετά το N=2: πρόοδος < 2 (όποιος έφτανε τον στόχο πήρε δώρο)", function () {
+            client.assert(response.status === 200, "Expected 200, got " + response.status);
+            client.assert(b.visitsRequired === 2, "visitsRequired ≠ 2");
+            client.assert(b.progress < 2, "πρόοδος " + b.progress + " ≥ 2 → το settleAll δεν έτρεξε");
+        });
+        client.global.set("L_stamps", String(b.completedVisits));
+        client.global.set("L_progress", String(b.progress));
+        client.global.set("L_avail", String(b.availableRewards));
+        client.global.set("L_next", String(b.nextRewardPercent));
+    })();
+%}
+
+
+### 3.2 Κράτηση X (admin, για την Κατερίνα) → παίρνει το ΠΑΛΑΙΟΤΕΡΟ ελεύθερο δώρο, αν υπάρχει
+POST http://localhost:8080/api/admin/appointments
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "serviceIds": [{{serviceId}}],
+  "employeeId": {{employeeId}},
+  "startsAt": "{{slot1}}",
+  "customerId": {{katerinaId}},
+  "guestName": null,
+  "guestPhone": null
+}
+
+> {%
+    // IIFE: οι μεταβλητές μένουν τοπικές σε αυτό το script
+    (function () {
+        const b = response.body;
+        const avail = Number(client.global.get("L_avail"));
+        const next = Number(client.global.get("L_next"));
+        const price = Number(client.global.get("servicePrice"));
+        client.test("3.2 Κράτηση X → 2xx, σωστό % δώρου, invariant τιμής", function () {
+            client.assert(response.status >= 200 && response.status < 300, "Expected 2xx, got " + response.status);
+            client.assert(b.discountPercent === (avail > 0 ? next : 0),
+                "discountPercent " + b.discountPercent + " ≠ αναμενόμενο " + (avail > 0 ? next : 0));
+            client.assert(Math.abs(Number(b.totalPrice) + Number(b.discountAmount) - price) < 0.001,
+                "totalPrice + discountAmount ≠ τιμή καταλόγου");
+        });
+        client.global.set("apptX", String(b.id !== undefined ? b.id : b.appointmentId));
+        client.test("id του νέου ραντεβού (apptX)", function () {
+            client.assert(client.global.get("apptX") !== "undefined",
+                "Το BookingResponse δεν έχει id/appointmentId. Πεδία: " + Object.keys(b).join(", "));
+        });
+    })();
+%}
+
+
+### 3.3 Μετά την κράτηση X: ένα δώρο λιγότερο (αν υπήρχε)
+GET http://localhost:8080/api/admin/customers/{{katerinaId}}/loyalty
+Authorization: Bearer {{adminToken}}
+
+> {%
+    // IIFE: οι μεταβλητές μένουν τοπικές σε αυτό το script
+    (function () {
+        const avail = Number(client.global.get("L_avail"));
+        client.test("3.3 availableRewards μειώθηκε κατά 1 (ή έμεινε 0)", function () {
+            client.assert(response.body.availableRewards === (avail > 0 ? avail - 1 : 0),
+                "availableRewards " + response.body.availableRewards);
+        });
+    })();
+%}
+
+
+### 3.4 Ακύρωση X (admin)
+PUT http://localhost:8080/api/admin/appointments/{{apptX}}/status
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "status": "CANCELLED"
+}
+
+> {%
+    client.test("3.4 X → CANCELLED → 2xx", function () {
+        client.assert(response.status >= 200 && response.status < 300, "Expected 2xx, got " + response.status);
+    });
+%}
+
+
+### 3.5 Κανόνας 4: η ακύρωση ΕΠΙΣΤΡΕΦΕΙ το δώρο (μηδέν κώδικας — partial unique index)
+GET http://localhost:8080/api/admin/customers/{{katerinaId}}/loyalty
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("3.5 availableRewards = αφετηρία", function () {
+        client.assert(response.body.availableRewards === Number(client.global.get("L_avail")),
+            "availableRewards " + response.body.availableRewards + " ≠ " + client.global.get("L_avail"));
+    });
+%}
+
+
+### 3.6 Κράτηση Y → το ΙΔΙΟ δώρο ξαναδένεται
+POST http://localhost:8080/api/admin/appointments
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "serviceIds": [{{serviceId}}],
+  "employeeId": {{employeeId}},
+  "startsAt": "{{slot2}}",
+  "customerId": {{katerinaId}},
+  "guestName": null,
+  "guestPhone": null
+}
+
+> {%
+    // IIFE: οι μεταβλητές μένουν τοπικές σε αυτό το script
+    (function () {
+        const avail = Number(client.global.get("L_avail"));
+        const next = Number(client.global.get("L_next"));
+        client.test("3.6 Κράτηση Y → 2xx, ίδιο % με το X", function () {
+            client.assert(response.status >= 200 && response.status < 300, "Expected 2xx, got " + response.status);
+            client.assert(response.body.discountPercent === (avail > 0 ? next : 0),
+                "discountPercent " + response.body.discountPercent);
+        });
+        client.global.set("apptY", String(response.body.id !== undefined ? response.body.id : response.body.appointmentId));
+        client.test("id του νέου ραντεβού (apptY)", function () {
+            client.assert(client.global.get("apptY") !== "undefined",
+                "Το BookingResponse δεν έχει id/appointmentId. Πεδία: " + Object.keys(response.body).join(", "));
+        });
+    })();
+%}
+
+
+### 3.7 Ολοκλήρωση Y → σφραγίδα
+PUT http://localhost:8080/api/admin/appointments/{{apptY}}/status
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "status": "COMPLETED"
+}
+
+> {%
+    client.test("3.7 Y → COMPLETED → 2xx", function () {
+        client.assert(response.status >= 200 && response.status < 300, "Expected 2xx, got " + response.status);
+    });
+%}
+
+
+### 3.8 +1 σφραγίδα· αν η κάρτα γέμισε (1/2 → 2/2) → νέο δώρο, πρόοδος 0/2
+GET http://localhost:8080/api/admin/customers/{{katerinaId}}/loyalty
+Authorization: Bearer {{adminToken}}
+
+> {%
+    // IIFE: οι μεταβλητές μένουν τοπικές σε αυτό το script
+    (function () {
+        const b = response.body;
+        const stamps = Number(client.global.get("L_stamps"));
+        const progress = Number(client.global.get("L_progress"));
+        const avail = Number(client.global.get("L_avail"));
+        const used = avail > 0 ? 1 : 0;
+        const earned = (progress + 1 >= 2) ? 1 : 0;
+        client.test("3.8 Σφραγίδα + σωστή δημιουργία δώρου", function () {
+            client.assert(b.completedVisits === stamps + 1, "completedVisits " + b.completedVisits + " ≠ " + (stamps + 1));
+            client.assert(b.progress === (progress + 1) % 2, "progress " + b.progress + " ≠ " + ((progress + 1) % 2));
+            client.assert(b.availableRewards === avail - used + earned,
+                "availableRewards " + b.availableRewards + " ≠ " + (avail - used + earned));
+        });
+        client.global.set("M_stamps", String(b.completedVisits));
+        client.global.set("M_progress", String(b.progress));
+        client.global.set("M_avail", String(b.availableRewards));
+        client.global.set("M_next", String(b.nextRewardPercent));
+    })();
+%}
+
+
+### 3.9 Κανόνας 6α: αλλαγή % (20 → 10)
+PUT http://localhost:8080/api/admin/settings/loyalty
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "enabled": true,
+  "visitsRequired": 2,
+  "discountPercent": 10
+}
+
+> {%
+    client.test("3.9 PUT loyalty 10% → 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+%}
+
+
+### 3.10 Τα κερδισμένα δώρα κρατούν το % τους· μόνο ο κανόνας άλλαξε
+GET http://localhost:8080/api/admin/customers/{{katerinaId}}/loyalty
+Authorization: Bearer {{adminToken}}
+
+> {%
+    // IIFE: οι μεταβλητές μένουν τοπικές σε αυτό το script
+    (function () {
+        const b = response.body;
+        client.test("3.10 discountPercent=10, nextRewardPercent & δώρα αμετάβλητα", function () {
+            client.assert(b.discountPercent === 10, "discountPercent ≠ 10");
+            client.assert(b.nextRewardPercent === Number(client.global.get("M_next")),
+                "nextRewardPercent άλλαξε: " + b.nextRewardPercent);
+            client.assert(b.availableRewards === Number(client.global.get("M_avail")), "χάθηκε/προστέθηκε δώρο");
+        });
+    })();
+%}
+
+
+### 3.11 Κανόνας 6β: ΑΥΞΗΣΗ του N (2 → 5) — εδώ ακριβώς χανόταν το δώρο στο D168
+PUT http://localhost:8080/api/admin/settings/loyalty
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "enabled": true,
+  "visitsRequired": 5,
+  "discountPercent": 20
+}
+
+> {%
+    client.test("3.11 PUT loyalty N=5 → 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+%}
+
+
+### 3.12 Σφραγίδες, πρόοδος και δώρα ΑΜΕΤΑΒΛΗΤΑ — αλλάζει μόνο ο στόχος (x/2 → x/5)
+GET http://localhost:8080/api/admin/customers/{{katerinaId}}/loyalty
+Authorization: Bearer {{adminToken}}
+
+> {%
+    // IIFE: οι μεταβλητές μένουν τοπικές σε αυτό το script
+    (function () {
+        const b = response.body;
+        client.test("3.12 Αύξηση N: τίποτα κερδισμένο δεν χάθηκε", function () {
+            client.assert(b.visitsRequired === 5, "visitsRequired ≠ 5");
+            client.assert(b.completedVisits === Number(client.global.get("M_stamps")), "άλλαξαν οι σφραγίδες");
+            client.assert(b.progress === Number(client.global.get("M_progress")), "άλλαξε η πρόοδος");
+            client.assert(b.availableRewards === Number(client.global.get("M_avail")), "ΧΑΘΗΚΕ δώρο (bug D168)");
+        });
+    })();
+%}
+
+
+### 3.13 D175 προετοιμασία: κράτηση Z1
+POST http://localhost:8080/api/admin/appointments
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "serviceIds": [{{serviceId}}],
+  "employeeId": {{employeeId}},
+  "startsAt": "{{slot3}}",
+  "customerId": {{katerinaId}},
+  "guestName": null,
+  "guestPhone": null
+}
+
+> {%
+    client.test("3.13 Κράτηση Z1 → 2xx", function () {
+        client.assert(response.status >= 200 && response.status < 300, "Expected 2xx, got " + response.status);
+    });
+    client.global.set("apptZ1", String(response.body.id !== undefined ? response.body.id : response.body.appointmentId));
+    client.test("id του νέου ραντεβού (apptZ1)", function () {
+        client.assert(client.global.get("apptZ1") !== "undefined",
+            "Το BookingResponse δεν έχει id/appointmentId. Πεδία: " + Object.keys(response.body).join(", "));
+    });
+%}
+
+
+### 3.14 Ολοκλήρωση Z1
+PUT http://localhost:8080/api/admin/appointments/{{apptZ1}}/status
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "status": "COMPLETED"
+}
+
+> {%
+    client.test("3.14 Z1 → COMPLETED → 2xx", function () {
+        client.assert(response.status >= 200 && response.status < 300, "Expected 2xx, got " + response.status);
+    });
+%}
+
+
+### 3.15 D175 προετοιμασία: κράτηση Z2
+POST http://localhost:8080/api/admin/appointments
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "serviceIds": [{{serviceId}}],
+  "employeeId": {{employeeId}},
+  "startsAt": "{{slot4}}",
+  "customerId": {{katerinaId}},
+  "guestName": null,
+  "guestPhone": null
+}
+
+> {%
+    client.test("3.15 Κράτηση Z2 → 2xx", function () {
+        client.assert(response.status >= 200 && response.status < 300, "Expected 2xx, got " + response.status);
+    });
+    client.global.set("apptZ2", String(response.body.id !== undefined ? response.body.id : response.body.appointmentId));
+    client.test("id του νέου ραντεβού (apptZ2)", function () {
+        client.assert(client.global.get("apptZ2") !== "undefined",
+            "Το BookingResponse δεν έχει id/appointmentId. Πεδία: " + Object.keys(response.body).join(", "));
+    });
+%}
+
+
+### 3.16 Ολοκλήρωση Z2
+PUT http://localhost:8080/api/admin/appointments/{{apptZ2}}/status
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "status": "COMPLETED"
+}
+
+> {%
+    client.test("3.16 Z2 → COMPLETED → 2xx", function () {
+        client.assert(response.status >= 200 && response.status < 300, "Expected 2xx, got " + response.status);
+    });
+%}
+
+
+### 3.17 Με N=5: +2 σφραγίδες, πρόοδος 2 ή 3 (< 5 → κανένα νέο δώρο ακόμα)
+GET http://localhost:8080/api/admin/customers/{{katerinaId}}/loyalty
+Authorization: Bearer {{adminToken}}
+
+> {%
+    // IIFE: οι μεταβλητές μένουν τοπικές σε αυτό το script
+    (function () {
+        const b = response.body;
+        const mp = Number(client.global.get("M_progress"));
+        client.test("3.17 Πρόοδος +2 κάτω από N=5", function () {
+            client.assert(b.completedVisits === Number(client.global.get("M_stamps")) + 2, "σφραγίδες ≠ +2");
+            client.assert(b.progress === mp + 2, "progress " + b.progress + " ≠ " + (mp + 2));
+        });
+        client.global.set("P_progress", String(b.progress));
+        client.global.set("P_avail", String(b.availableRewards));
+    })();
+%}
+
+
+### 3.18 D175: ΜΕΙΩΣΗ του N (5 → 2) → όποιος φτάνει ήδη τον στόχο κερδίζει ΑΜΕΣΩΣ
+PUT http://localhost:8080/api/admin/settings/loyalty
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "enabled": true,
+  "visitsRequired": 2,
+  "discountPercent": 20
+}
+
+> {%
+    client.test("3.18 PUT loyalty N=2 → 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+%}
+
+
+### 3.19 Δώρα = πρόοδος / 2 (ακέραια), πρόοδος = πρόοδος % 2
+GET http://localhost:8080/api/admin/customers/{{katerinaId}}/loyalty
+Authorization: Bearer {{adminToken}}
+
+> {%
+    // IIFE: οι μεταβλητές μένουν τοπικές σε αυτό το script
+    (function () {
+        const b = response.body;
+        const pp = Number(client.global.get("P_progress"));
+        const pa = Number(client.global.get("P_avail"));
+        client.test("3.19 D175: δώρα δημιουργήθηκαν στην αποθήκευση ρυθμίσεων", function () {
+            client.assert(b.availableRewards === pa + Math.floor(pp / 2),
+                "availableRewards " + b.availableRewards + " ≠ " + (pa + Math.floor(pp / 2)));
+            client.assert(b.progress === pp % 2, "progress " + b.progress + " ≠ " + (pp % 2));
+        });
+    })();
+%}
+
+
+### 3.20 Κανόνας 7 προετοιμασία: κράτηση W (ενώ είναι ενεργό)
+POST http://localhost:8080/api/admin/appointments
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "serviceIds": [{{serviceId}}],
+  "employeeId": {{employeeId}},
+  "startsAt": "{{slot5}}",
+  "customerId": {{katerinaId}},
+  "guestName": null,
+  "guestPhone": null
+}
+
+> {%
+    client.test("3.20 Κράτηση W → 2xx", function () {
+        client.assert(response.status >= 200 && response.status < 300, "Expected 2xx, got " + response.status);
+    });
+    client.global.set("apptW", String(response.body.id !== undefined ? response.body.id : response.body.appointmentId));
+    client.test("id του νέου ραντεβού (apptW)", function () {
+        client.assert(client.global.get("apptW") !== "undefined",
+            "Το BookingResponse δεν έχει id/appointmentId. Πεδία: " + Object.keys(response.body).join(", "));
+    });
+%}
+
+
+### 3.21 Κατάσταση πριν την απενεργοποίηση
+GET http://localhost:8080/api/admin/customers/{{katerinaId}}/loyalty
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.global.set("W_stamps", String(response.body.completedVisits));
+    client.global.set("W_avail", String(response.body.availableRewards));
+    client.test("3.21 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+%}
+
+
+### 3.22 Απενεργοποίηση
+PUT http://localhost:8080/api/admin/settings/loyalty
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "enabled": false,
+  "visitsRequired": 2,
+  "discountPercent": 20
+}
+
+> {%
+    client.test("3.22 PUT loyalty disabled → 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+%}
+
+
+### 3.23 Ανενεργό: τα δώρα «παγώνουν» (δεν φαίνονται, δεν εφαρμόζονται)
+GET http://localhost:8080/api/admin/customers/{{katerinaId}}/loyalty
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("3.23 enabled=false, availableRewards=0, nextRewardPercent=0", function () {
+        client.assert(response.body.enabled === false, "enabled ≠ false");
+        client.assert(response.body.availableRewards === 0, "δώρα ορατά ενώ είναι ανενεργό");
+        client.assert(response.body.nextRewardPercent === 0, "nextRewardPercent ≠ 0");
+    });
+%}
+
+
+### 3.24 Ολοκλήρωση W ΕΝΩ είναι ανενεργό → ΚΑΜΙΑ σφραγίδα
+PUT http://localhost:8080/api/admin/appointments/{{apptW}}/status
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "status": "COMPLETED"
+}
+
+> {%
+    client.test("3.24 W → COMPLETED → 2xx", function () {
+        client.assert(response.status >= 200 && response.status < 300, "Expected 2xx, got " + response.status);
+    });
+%}
+
+
+### 3.25 Επανενεργοποίηση με τις προεπιλογές (N=5, 20%) — τελική κατάσταση του αρχείου
+PUT http://localhost:8080/api/admin/settings/loyalty
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "enabled": true,
+  "visitsRequired": 5,
+  "discountPercent": 20
+}
+
+> {%
+    client.test("3.25 PUT loyalty enabled N=5 → 200", function () {
+        client.assert(response.status === 200, "Expected 200, got " + response.status);
+    });
+%}
+
+
+### 3.26 Κανόνας 7: τα δώρα επανέρχονται· η ολοκλήρωση όσο ήταν ανενεργό ΔΕΝ μέτρησε
+GET http://localhost:8080/api/admin/customers/{{katerinaId}}/loyalty
+Authorization: Bearer {{adminToken}}
+
+> {%
+    // IIFE: οι μεταβλητές μένουν τοπικές σε αυτό το script
+    (function () {
+        const b = response.body;
+        client.test("3.26 Ίδιες σφραγίδες, ίδια δώρα με πριν την απενεργοποίηση", function () {
+            client.assert(b.enabled === true, "enabled ≠ true");
+            client.assert(b.completedVisits === Number(client.global.get("W_stamps")),
+                "δόθηκε σφραγίδα ενώ ήταν ανενεργό");
+            client.assert(b.availableRewards === Number(client.global.get("W_avail")),
+                "availableRewards " + b.availableRewards + " ≠ " + client.global.get("W_avail"));
+        });
+    })();
 %}

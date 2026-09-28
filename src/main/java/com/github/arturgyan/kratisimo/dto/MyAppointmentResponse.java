@@ -11,6 +11,10 @@ import java.util.List;
  * Περιέχει 'canCancel' — παράγωγο boolean που λέει στο frontend αν να δείξει
  * το κουμπί ακύρωσης. Ο υπολογισμός γίνεται server-side (ο client δεν
  * αποφασίζει τι επιτρέπεται — ίδια αρχή με το enforcement server-side).
+ *
+ * totalPrice = ΤΕΛΙΚΗ τιμή (μετά την έκπτωση).
+ * discountPercent / discountAmount = snapshot επιβράβευσης (0 / 0,00 αν καμία).
+ * Υποσύνολο (τιμή καταλόγου) = totalPrice + discountAmount → το υπολογίζει ο client.
  */
 public record MyAppointmentResponse(
         Long id,
@@ -19,6 +23,8 @@ public record MyAppointmentResponse(
         String employeeName,
         List<String> serviceNames,
         BigDecimal totalPrice,
+        int discountPercent,        // ΝΕΟ (2e)
+        BigDecimal discountAmount,  // ΝΕΟ (2e)
         String status,
         boolean canCancel,
         boolean canReview

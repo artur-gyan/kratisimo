@@ -119,6 +119,23 @@ public class ReviewService {
         );
     }
 
+    /**
+     * Βαθμολογία μαγαζιού + 20 πρόσφατες κριτικές. Public, χωρίς customerName.
+     * 3 queries συνολικά: AVG, COUNT, λίστα (με JOINs μέσω EntityGraph).
+     */
+    @Transactional(readOnly = true)
+    public ShopRatingResponse getShopRating() {
+        Double average = reviewRepository.findShopAverageRating();   // null αν 0 (D110)
+        long count = reviewRepository.count();                        // κληρονομείται από JpaRepository
+
+        List<ReviewResponse> recent = reviewRepository.findTop20ByOrderByCreatedAtDesc()
+                .stream()
+                .map(this::toResponse)   // ίδιος mapper — κανένα lazy load (ήδη fetched)
+                .toList();
+
+        return new ShopRatingResponse(average, count, recent);
+    }
+
     // ── Private mappers (μέσα στο @Transactional → lazy proxies resolve, D87) ──
 
     private ReviewResponse toResponse(Review r) {

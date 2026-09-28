@@ -51,17 +51,15 @@ public class SecurityConfig {
                         .requestMatchers("/api/services/**").permitAll()
                         .requestMatchers("/api/business-info").permitAll()
                         .requestMatchers("/api/availability/**").permitAll()
-
                         .requestMatchers(HttpMethod.GET, "/api/employees/*/reviews").permitAll()
-
                         .requestMatchers(HttpMethod.GET, "/api/employees/available").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/employees").permitAll()
+
+                        .requestMatchers(HttpMethod.GET, "/api/reviews/recent").permitAll()   // ← ΝΕΟ, ΠΑΝΩ από το /api/reviews/**
 
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-
                         .requestMatchers("/api/employee/**").hasRole("EMPLOYEE")
-
                         .requestMatchers("/api/reviews/**").authenticated()
-
                         .anyRequest().authenticated())
 
                 // 4. Το δικό μας filter ΠΡΙΝ το username/password filter του Spring

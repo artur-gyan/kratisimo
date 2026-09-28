@@ -5,7 +5,6 @@ import com.github.arturgyan.kratisimo.dto.AppointmentCancelledEvent;
 import com.github.arturgyan.kratisimo.dto.AppointmentCompletedEvent;
 import com.github.arturgyan.kratisimo.dto.RescheduleRequest;
 import com.github.arturgyan.kratisimo.entity.Appointment;
-import com.github.arturgyan.kratisimo.entity.AppointmentItem;
 import com.github.arturgyan.kratisimo.entity.EmployeeProfile;
 import com.github.arturgyan.kratisimo.enums.AppointmentStatus;
 import com.github.arturgyan.kratisimo.exception.SlotUnavailableException;
@@ -29,15 +28,18 @@ public class AdminAppointmentService {
     private final EmployeeProfileRepository employeeProfileRepository;
     private final SettingsProvider settingsProvider;
     private final ApplicationEventPublisher eventPublisher;
+    private final LoyaltyService loyaltyService;   // ── ΝΕΟ (D173)
 
     public AdminAppointmentService(AppointmentRepository appointmentRepository,
                                    EmployeeProfileRepository employeeProfileRepository,
                                    SettingsProvider settingsProvider,
-                                   ApplicationEventPublisher eventPublisher) {
+                                   ApplicationEventPublisher eventPublisher,
+                                   LoyaltyService loyaltyService) {   // ── ΝΕΟ (D173)
         this.appointmentRepository = appointmentRepository;
         this.employeeProfileRepository = employeeProfileRepository;
         this.settingsProvider = settingsProvider;
         this.eventPublisher = eventPublisher;
+        this.loyaltyService = loyaltyService;
     }
 
     @Transactional(readOnly = true)
@@ -48,7 +50,7 @@ public class AdminAppointmentService {
         Instant toInstant = to.plusDays(1).atStartOfDay(zone).toInstant();
 
         return appointmentRepository.findByStartsAtRange(fromInstant, toInstant).stream()
-                .map(this::toResponse)
+                .map(AdminAppointmentResponse::from)   // ενιαίο mapping (D171)
                 .toList();
     }
 
@@ -60,7 +62,7 @@ public class AdminAppointmentService {
         Instant toInstant = to.plusDays(1).atStartOfDay(zone).toInstant();
 
         return appointmentRepository.findByStatusInRange(status, fromInstant, toInstant).stream()
-                .map(this::toResponse)
+                .map(AdminAppointmentResponse::from)   // ενιαίο mapping (D171)
                 .toList();
     }
 
@@ -82,7 +84,16 @@ public class AdminAppointmentService {
 
         appointment.setStatus(target);
 
+        // ── ΑΛΛΑΓΗ (D173): σφραγίδα + ίσως νέο δώρο ──
+        // ΜΕΤΑ το setStatus: το CHECK του V8 δέχεται σφραγίδα ΜΟΝΟ σε COMPLETED.
+        // Το COMPLETED είναι τελικό (D148) → η σφραγίδα δεν αφαιρείται ποτέ.
+        if (target == AppointmentStatus.COMPLETED) {
+            loyaltyService.recordCompletion(appointment);
+        }
+
         if (target == AppointmentStatus.CANCELLED) {
+            // Δώρο δεμένο σε αυτό το ραντεβού → ελευθερώνεται ΜΟΝΟ του: ο partial
+            // unique index αγνοεί τα CANCELLED. ΚΑΜΙΑ γραμμή κώδικα γι' αυτό (D173 κανόνας 4).
             appointment.setCancelledAt(Instant.now());
             appointment.setCancellationReason("Cancelled by admin");
         }
@@ -152,29 +163,5 @@ public class AdminAppointmentService {
         appointment.setEmployee(employee);
         appointment.setStartsAt(newStartsAt);
         appointment.setEndsAt(newEndsAt);
-    }
-
-    private AdminAppointmentResponse toResponse(Appointment a) {
-        List<String> serviceNames = a.getItems().stream()
-                .map(AppointmentItem::getService)
-                .map(s -> s.getName())
-                .toList();
-
-        String customerName = (a.getCustomer() != null)
-                ? a.getCustomer().getFullName()
-                : a.getGuestName();
-
-        return new AdminAppointmentResponse(
-                a.getId(),
-                a.getEmployee().getId(),
-                customerName,
-                a.getEmployee().getUser().getFullName(),
-                a.getStartsAt(),
-                a.getEndsAt(),
-                a.getStatus(),
-                a.getTotalPrice(),
-                a.getTotalDurationMinutes(),
-                serviceNames
-        );
     }
 }

@@ -16,6 +16,7 @@ public record PublicEmployeeResponse(
         Long id,
         String fullName,
         String photoUrl,
+        String bio,
         Double averageRating,
         int reviewCount
 ) {}

@@ -5,15 +5,19 @@ import com.github.arturgyan.kratisimo.dto.SettingsResponse;
 import com.github.arturgyan.kratisimo.entity.BusinessSettings;
 import com.github.arturgyan.kratisimo.repository.BusinessSettingsRepository;
 import org.springframework.stereotype.Service;
+import com.github.arturgyan.kratisimo.dto.LoyaltySettingsRequest;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class SettingsService {
 
     private final BusinessSettingsRepository settingsRepository;
+    private final LoyaltyService loyaltyService;   // ── ΝΕΟ (D175)
 
-    public SettingsService(BusinessSettingsRepository settingsRepository) {
+    public SettingsService(BusinessSettingsRepository settingsRepository,
+                           LoyaltyService loyaltyService) {   // ── ΝΕΟ (D175)
         this.settingsRepository = settingsRepository;
+        this.loyaltyService = loyaltyService;
     }
 
     // ---------- READ ----------
@@ -48,6 +52,30 @@ public class SettingsService {
         return toResponse(s);
     }
 
+    // ---------- UPDATE LOYALTY ----------
+    // Ξεχωριστή πράξη από τις γενικές ρυθμίσεις (δική της ενότητα στο UI).
+    // Κανένας επιπλέον έλεγχος εδώ: τα όρια είναι range checks → DTO (@Min/@Max).
+    @Transactional
+    public SettingsResponse updateLoyalty(LoyaltySettingsRequest request) {
+        BusinessSettings s = loadSingleton();
+
+        // Dirty checking — UPDATE στο commit, χωρίς save() (D95).
+        s.setLoyaltyEnabled(request.enabled());
+        s.setLoyaltyVisitsRequired(request.visitsRequired());
+        s.setLoyaltyDiscountPercent(request.discountPercent());
+
+        // ── ΝΕΟ (D175): όποιος φτάνει ΠΛΕΟΝ τον στόχο κερδίζει ΑΜΕΣΩΣ ──
+        // Π.χ. N 7→3 με πρόοδο 6 → 2 δώρα. Αύξηση N / αλλαγή % → δεν δημιουργεί τίποτα.
+        // ΙΔΙΟ transaction: αν αποτύχει η δημιουργία δώρων, rollback ΚΑΙ στις ρυθμίσεις
+        // (δεν μένει ποτέ «νέος κανόνας χωρίς τα δώρα του»).
+        // Ο LoyaltyService διαβάζει τον κανόνα μέσω SettingsProvider → findById στο ΙΔΙΟ
+        // EntityManager → παίρνει ΑΥΤΟ το managed s, με τις νέες τιμές (first-level cache),
+        // ακόμα κι αν το UPDATE δεν έχει γίνει ακόμα flush.
+        loyaltyService.settleAll();
+
+        return toResponse(s);
+    }
+
     // ---------- helpers ----------
     private BusinessSettings loadSingleton() {
         return settingsRepository.findById(BusinessSettings.SINGLETON_ID)
@@ -64,7 +92,11 @@ public class SettingsService {
                 s.getType(),
                 s.getSlotGranularityMinutes(),
                 s.getBookingLeadTimeMinutes(),
-                s.isSetupCompleted()
+                s.isSetupCompleted(),
+                s.isLoyaltyEnabled(),
+                s.getLoyaltyVisitsRequired(),
+                s.getLoyaltyDiscountPercent()
         );
+
     }
 }

@@ -18,54 +18,58 @@ import java.util.List;
  */
 public interface LoyaltyRewardRepository extends JpaRepository<LoyaltyReward, Long> {
 
-    // ── Σύνολα δώρων για ΕΝΑΝ ή ΠΟΛΛΟΥΣ πελάτες σε ΕΝΑ query (D128 μοτίβο) ──
-    //  - consumedStamps: Σ visits_required = πόσες σφραγίδες «ξόδεψαν» τα δώρα που κερδήθηκαν
-    //                    → πρόοδος τρέχουσας κάρτας = σφραγίδες − consumedStamps
-    //  - freeRewards:    πόσα δώρα δεν έχουν δεθεί σε ενεργό ραντεβού
+    // ── Lock του «βιβλίου» ενός πελάτη (D176) ──
+    // SELECT … FOR UPDATE στη γραμμή του πελάτη στο users: όποια ΑΛΛΗ συναλλαγή
+    // ζητήσει το ίδιο lock ΠΕΡΙΜΕΝΕΙ μέχρι αυτή να κάνει commit/rollback.
+    // → δύο εγγραφές στο ledger του ίδιου πελάτη εκτελούνται η μία ΜΕΤΑ την άλλη.
+    // Διαφορετικοί πελάτες = διαφορετικές γραμμές → δεν περιμένουν ο ένας τον άλλον.
     //
-    // LEFT JOIN ΧΩΡΙΣ fan-out: κάθε δώρο ταιριάζει με το ΠΟΛΥ ΕΝΑ μη ακυρωμένο ραντεβού,
-    // το εγγυάται ο partial unique index uq_loyalty_reward_single_use → κάθε δώρο
-    // εμφανίζεται ακριβώς μία φορά → το SUM(visitsRequired) είναι σωστό.
-    //
-    // Το φίλτρο status ΜΠΑΙΝΕΙ ΣΤΟ ON, ΟΧΙ ΣΤΟ WHERE: για ελεύθερο δώρο το a είναι NULL,
-    // και στο WHERE το "NULL <> 'CANCELLED'" = unknown → η γραμμή θα πετιόταν
-    // → τα ελεύθερα δώρα θα εξαφανίζονταν.
-    //
-    // Πελάτης χωρίς κανένα δώρο → καμία γραμμή → ο service το θεωρεί 0/0.
+    // Native και μόνο το id: δεν φορτώνεται entity User (ούτε τα EAGER roles, D31)
+    // και φαίνεται ΑΚΡΙΒΩΣ το SQL που τρέχει.
+    // Ζει εδώ και όχι στο UserRepository: σκοπός του είναι το loyalty ledger·
+    // η γραμμή του users είναι απλώς το «λουκέτο» του.
+    // ΠΡΕΠΕΙ να καλείται μέσα σε read-write transaction: το lock κρατιέται μέχρι το
+    // commit, και η PostgreSQL απαγορεύει FOR UPDATE σε read-only transaction.
+    @Query(value = "SELECT id FROM users WHERE id = :customerId FOR UPDATE", nativeQuery = true)
+    Long lockLedgerOf(@Param("customerId") Long customerId);
+
+    // ── Σφραγίδες που «ξόδεψαν» τα δώρα, ανά πελάτη (D128 μοτίβο) ──
+    // Σ visits_required: κάθε δώρο αφαιρεί ΟΣΕΣ σφραγίδες κόστισε ΟΤΑΝ κερδήθηκε,
+    // όχι το τρέχον N. Γι' αυτό το N αποθηκεύεται σε κάθε δώρο: αύξηση 5→7 δεν
+    // κάνει ένα παλιό δώρο να «κοστίζει» ξαφνικά 7 (το bug του D168).
+    // Πελάτης χωρίς δώρα → καμία γραμμή → ο service το θεωρεί 0.
     @Query("""
             SELECT r.customer.id AS customerId,
-                   SUM(r.visitsRequired) AS consumedStamps,
-                   SUM(CASE WHEN a.id IS NULL THEN 1 ELSE 0 END) AS freeRewards
+                   SUM(r.visitsRequired) AS consumedStamps
             FROM LoyaltyReward r
-            LEFT JOIN Appointment a
-                   ON a.loyaltyReward = r AND a.status <> :cancelled
             WHERE r.customer.id IN :customerIds
             GROUP BY r.customer.id
             """)
-    List<RewardTotalsProjection> findTotalsByCustomer(
-            @Param("customerIds") List<Long> customerIds,
-            @Param("cancelled") AppointmentStatus cancelled);
+    List<ConsumedStampsProjection> sumConsumedStampsByCustomer(
+            @Param("customerIds") List<Long> customerIds);
 
-    // ── Ελεύθερα δώρα ενός πελάτη, ΠΑΛΑΙΟΤΕΡΟ πρώτο (κράτηση, D173 κανόνας 3) ──
+    // ── Ελεύθερα δώρα, ΠΑΛΑΙΟΤΕΡΟ πρώτο (D173 κανόνας 3) ──
+    // Ένα query για τρεις χρήσεις:
+    //   - πλήθος ελεύθερων      = μέγεθος λίστας ανά πελάτη
+    //   - % επόμενου δώρου      = το 1ο της λίστας
+    //   - δώρο για την κράτηση  = το 1ο της λίστας (List.of(customerId))
     // NOT EXISTS = κατά λέξη ο ορισμός του «ελεύθερου».
-    // id ως δεύτερο κριτήριο: δύο δώρα που γεννιούνται στην ίδια συναλλαγή μπορεί να
+    // id ως δεύτερο κριτήριο: δώρα που γεννιούνται στην ίδια συναλλαγή μπορεί να
     // έχουν ίδιο earnedAt· το IDENTITY id είναι πάντα αύξον → σταθερή σειρά.
-    // Χωρίς LIMIT: ένας πελάτης έχει το πολύ λίγα ελεύθερα δώρα· ο service παίρνει το 1ο.
     @Query("""
             SELECT r FROM LoyaltyReward r
-            WHERE r.customer.id = :customerId
+            WHERE r.customer.id IN :customerIds
               AND NOT EXISTS (
                     SELECT a.id FROM Appointment a
                     WHERE a.loyaltyReward = r AND a.status <> :cancelled)
             ORDER BY r.earnedAt ASC, r.id ASC
             """)
     List<LoyaltyReward> findFreeOldestFirst(
-            @Param("customerId") Long customerId,
+            @Param("customerIds") List<Long> customerIds,
             @Param("cancelled") AppointmentStatus cancelled);
 
-    interface RewardTotalsProjection {
+    interface ConsumedStampsProjection {
         Long getCustomerId();
         long getConsumedStamps();
-        long getFreeRewards();
     }
 }

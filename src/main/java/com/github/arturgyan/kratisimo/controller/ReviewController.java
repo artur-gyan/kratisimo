@@ -56,4 +56,10 @@ public class ReviewController {
     public EmployeeRatingResponse getEmployeeReviews(@PathVariable Long id) {
         return reviewService.getEmployeeReviews(id);
     }
+
+    /** GET: βαθμολογία μαγαζιού + πρόσφατες κριτικές. PUBLIC (σελίδα "Κριτικές"). */
+    @GetMapping("/api/reviews/recent")
+    public ShopRatingResponse getShopReviews() {
+        return reviewService.getShopRating();
+    }
 }

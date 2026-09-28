@@ -11,5 +11,9 @@ public record SettingsResponse(
         BusinessType businessType,
         int slotGranularityMinutes,
         int bookingLeadTimeMinutes,
-        boolean setupCompleted
+        boolean setupCompleted,
+        // ── Πρόγραμμα επιβράβευσης (V7) ──
+        boolean loyaltyEnabled,
+        int loyaltyVisitsRequired,
+        int loyaltyDiscountPercent
 ) {}

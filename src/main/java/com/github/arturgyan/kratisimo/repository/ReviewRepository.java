@@ -4,6 +4,7 @@ import com.github.arturgyan.kratisimo.entity.Review;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.EntityGraph;
 
 import java.util.List;
 import java.util.Set;
@@ -53,4 +54,17 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
            "WHERE r.appointment.employee.id IN :employeeIds " +
            "GROUP BY r.appointment.employee.id")
     List<Object[]> findAverageRatingsByEmployeeIds(@Param("employeeIds") List<Long> employeeIds);
+
+    // ── Μέσος όρος ΟΛΟΥ του μαγαζιού (aggregation στη βάση, D100) ──
+    // null αν δεν υπάρχει καμία κριτική (D110).
+    @Query("SELECT AVG(r.rating) FROM Review r")
+    Double findShopAverageRating();
+
+    // ── Οι 20 πιο πρόσφατες κριτικές, ΜΑΖΙ με appointment → employee → user ──
+    // Top20: το LIMIT μπαίνει στη βάση (derived query).
+    // @EntityGraph: το toResponse() διαβάζει a.getEmployee().getUser().getFullName().
+    // Χωρίς graph: 3 lazy SELECT ανά κριτική → έως 60 queries (N+1).
+    // Με graph: ΕΝΑ query με JOINs.
+    @EntityGraph(attributePaths = {"appointment", "appointment.employee", "appointment.employee.user"})
+    List<Review> findTop20ByOrderByCreatedAtDesc();
 }

@@ -46,5 +46,17 @@ public class BusinessSettings {
     @Column(name = "booking_lead_time_minutes", nullable = false)
     private int bookingLeadTimeMinutes = 10;
 
+    // ── Πρόγραμμα επιβράβευσης (V7) ──
+    // Primitive τύποι (D36): δεν υπάρχει "τρίτη κατάσταση null".
+    // Lombok: boolean → isLoyaltyEnabled(), int → getLoyaltyVisitsRequired().
+
+    @Column(name = "loyalty_enabled", nullable = false)
+    private boolean loyaltyEnabled = false;
+
+    @Column(name = "loyalty_visits_required", nullable = false)
+    private int loyaltyVisitsRequired = 7;
+
+    @Column(name = "loyalty_discount_percent", nullable = false)
+    private int loyaltyDiscountPercent = 20;
 
 }
