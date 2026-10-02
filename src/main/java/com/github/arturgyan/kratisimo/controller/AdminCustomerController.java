@@ -8,6 +8,7 @@ import com.github.arturgyan.kratisimo.dto.LoyaltyResponse;
 import com.github.arturgyan.kratisimo.repository.UserRepository;
 import com.github.arturgyan.kratisimo.service.AdminCustomerService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -66,12 +67,18 @@ public class AdminCustomerController {
     }
 
     // ── Ενεργοποίηση/απενεργοποίηση (active toggle, D131 μοτίβο). ──
+    // @ResponseStatus(NO_CONTENT): επιτυχία ΧΩΡΙΣ body → 204.
+    // Χωρίς αυτό, μια void μέθοδος δίνει 200 με ΚΕΝΟ body· ο client (api.js) βλέπει 200,
+    // περιμένει JSON, το response.json() σκάει → «η αλλαγή απέτυχε» ενώ η βάση άλλαξε κανονικά.
+    // Ίδια σύμβαση με όλα τα υπόλοιπα void endpoints (delete, cancel, status, reschedule).
     @PostMapping("/{id}/activate")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void activate(@PathVariable Long id) {
         adminCustomerService.setActive(id, true);
     }
 
     @PostMapping("/{id}/deactivate")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deactivate(@PathVariable Long id) {
         adminCustomerService.setActive(id, false);
     }

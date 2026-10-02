@@ -2,34 +2,36 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Calendar, Clock, Star, ArrowRight } from 'lucide-react';
-import { getBusinessInfo } from '../services/businessService';
 import { api } from '../services/api';
+import { useBusiness } from '../context/BusinessContext';
 import Avatar from '../components/Avatar';
 import RatingBadge from '../components/RatingBadge';
 
+// Η αρχική δείχνει «δείγμα» ανά κατηγορία· ο πλήρης κατάλογος ζει στη σελίδα /services.
+// Σειρά: όπως έρχονται από το /api/services (αλφαβητικά).
+const MAX_PER_CATEGORY = 4;
+
 export default function HomePage() {
     const navigate = useNavigate();
-    const [business, setBusiness] = useState(null);
+    // Όνομα από το global BusinessContext (D159) — όχι δικό της fetch:
+    // ένα request λιγότερο και ΙΔΙΟ όνομα με Navbar/footer.
+    const { name: businessName } = useBusiness();
     const [services, setServices] = useState([]);
     const [employees, setEmployees] = useState([]);
 
     useEffect(() => {
         async function load() {
-            // Τρία ανεξάρτητα requests ΠΑΡΑΛΛΗΛΑ (όχι waterfall).
-            // Κάθε ένα με δικό του .catch: αν αποτύχει ένα, τα άλλα εμφανίζονται κανονικά.
-            const [info, svc, emps] = await Promise.all([
-                getBusinessInfo().catch(() => null),
+            // Δύο ανεξάρτητα requests ΠΑΡΑΛΛΗΛΑ (όχι waterfall).
+            // Κάθε ένα με δικό του .catch: αν αποτύχει ένα, το άλλο εμφανίζεται κανονικά.
+            const [svc, emps] = await Promise.all([
                 api.get('/services').catch(() => []),
                 api.get('/employees').catch(() => []),   // ΟΛΟΙ οι ενεργοί
             ]);
-            setBusiness(info);
             setServices(svc);
             setEmployees(emps);
         }
         load();
     }, []);
-
-    const businessName = business?.name || 'Kratisimo';
 
     const grouped = services.reduce((acc, s) => {
         const cat = s.categoryName;
@@ -188,11 +190,22 @@ export default function HomePage() {
                                 viewport={{ once: true }}
                                 transition={{ duration: 0.5, delay: ci * 0.05 }}
                             >
-                                <h3 className="text-sm font-semibold text-blue uppercase tracking-wider mb-5">
-                                    {category}
-                                </h3>
+                                <div className="flex items-center justify-between gap-4 mb-5">
+                                    <h3 className="text-sm font-semibold text-blue uppercase tracking-wider">
+                                        {category}
+                                    </h3>
+                                    {/* Κρυμμένες υπηρεσίες της κατηγορίας → πλήρης λίστα στη σελίδα Υπηρεσιών */}
+                                    {grouped[category].length > MAX_PER_CATEGORY && (
+                                        <button
+                                            onClick={() => navigate('/services')}
+                                            className="inline-flex items-center gap-1 text-slate/50 text-sm hover:text-blue transition-colors flex-shrink-0"
+                                        >
+                                            +{grouped[category].length - MAX_PER_CATEGORY} ακόμη <ArrowRight size={14} />
+                                        </button>
+                                    )}
+                                </div>
                                 <div className="grid sm:grid-cols-2 gap-3">
-                                    {grouped[category].map((s) => (
+                                    {grouped[category].slice(0, MAX_PER_CATEGORY).map((s) => (
                                         <div
                                             key={s.id}
                                             onClick={() => navigate(`/book?service=${s.id}`)}
@@ -212,6 +225,15 @@ export default function HomePage() {
                                 </div>
                             </motion.div>
                         ))}
+                    </div>
+
+                    <div className="text-center mt-10">
+                        <button
+                            onClick={() => navigate('/services')}
+                            className="inline-flex items-center gap-1.5 text-blue font-medium hover:gap-2.5 transition-all"
+                        >
+                            Δες όλες τις υπηρεσίες <ArrowRight size={16} />
+                        </button>
                     </div>
                 </section>
             )}

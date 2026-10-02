@@ -1,35 +1,48 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { getBusinessInfo } from '../services/businessService';
 
 // Global business info (όνομα/διεύθυνση/τηλέφωνο μαγαζιού).
-// Φορτώνεται ΜΙΑ φορά στο app mount — Navbar/landing/footer το διαβάζουν
-// χωρίς επαναλαμβανόμενα fetch. Public endpoint, κανένα token.
+// Μία πηγή για Navbar / landing / footer / τίτλο καρτέλας (D159).
+// Public endpoint, κανένα token.
 const BusinessContext = createContext(null);
 
 export function BusinessProvider({ children }) {
     const [business, setBusiness] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        async function load() {
-            try {
-                const info = await getBusinessInfo();
-                setBusiness(info);
-            } catch {
-                // Fallback: αν αποτύχει, το UI δείχνει "Kratisimo" (default).
-                setBusiness(null);
-            } finally {
-                setLoading(false);
-            }
+    // Ξαναδιαβάζει τα στοιχεία από τον server.
+    // Καλείται: (1) στο app mount, (2) από τη σελίδα Ρυθμίσεων μετά από αποθήκευση
+    // → Navbar/footer/τίτλος ενημερώνονται ΑΜΕΣΩΣ, χωρίς refresh σελίδας.
+    // useCallback: σταθερή αναφορά συνάρτησης → ασφαλής ως dependency στο useEffect.
+    const refresh = useCallback(async () => {
+        try {
+            const info = await getBusinessInfo();
+            setBusiness(info);
+        } catch {
+            // Αποτυχία: κρατάμε ό,τι είχαμε. Στο mount = null → fallback "Kratisimo".
+            // (Ένα αποτυχημένο refresh δεν πρέπει να «σβήσει» το όνομα που ήδη φαίνεται.)
+        } finally {
+            setLoading(false);
         }
-        load();
     }, []);
 
+    useEffect(() => {
+        refresh();
+    }, [refresh]);
+
     // name με fallback ώστε το Navbar να μη δείχνει ποτέ κενό.
+    const name = business?.name || 'Kratisimo';
+
+    // Τίτλος καρτέλας browser = όνομα μαγαζιού (ακολουθεί κάθε αλλαγή του ονόματος).
+    useEffect(() => {
+        document.title = name;
+    }, [name]);
+
     const value = {
         business,
         loading,
-        name: business?.name || 'Kratisimo',
+        name,
+        refresh,
     };
 
     return (

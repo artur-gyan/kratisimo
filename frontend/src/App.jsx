@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { BusinessProvider } from './context/BusinessContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Navbar from './components/Navbar';
+import Footer from './components/Footer';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
@@ -123,10 +124,8 @@ function App() {
                         />
                     </Routes>
 
-                    {/* Global footer — διακριτικό platform branding */}
-                    <footer className="text-center py-6 text-slate/40 text-sm border-t border-slate/10 mt-8">
-                        Powered by Kratisimo
-                    </footer>
+                    {/* Global footer: στοιχεία μαγαζιού (πελάτες) + platform branding (όλοι) */}
+                    <Footer />
                 </BrowserRouter>
             </BusinessProvider>
         </AuthProvider>

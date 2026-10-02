@@ -1,12 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Check, Gift } from 'lucide-react';
 import { settingsService } from '../services/settingsService';
+import { useBusiness } from '../context/BusinessContext';
 
 // Επιτρεπτές τιμές granularity: μόνο διαιρέτες του 60 (backend rule 60 % g == 0, D102).
 // Dropdown αντί για ελεύθερο input → αδύνατο να σταλεί μη έγκυρη τιμή.
 const GRANULARITY_OPTIONS = [5, 10, 15, 20, 30, 60];
 
 export default function AdminSettingsPage() {
+    // Μετά την αποθήκευση: ξαναφόρτωμα του global business info → Navbar/footer/τίτλος
+    // δείχνουν αμέσως το νέο όνομα (αλλιώς μόνο μετά από refresh σελίδας).
+    const { refresh: refreshBusiness } = useBusiness();
+
     const [settings, setSettings] = useState(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -75,6 +80,9 @@ export default function AdminSettingsPage() {
             };
             const updated = await settingsService.update(body);
             setSettings(updated);
+            // Ξαναδιαβάζει το PUBLIC endpoint (/api/business-info) — αυτό ορίζει τι είναι δημόσιο,
+            // όχι αντιγραφή πεδίων από το admin SettingsResponse εδώ.
+            refreshBusiness();
             setSuccess(true);
             // Το success μήνυμα εξαφανίζεται μετά από 3 δευτερόλεπτα.
             setTimeout(() => setSuccess(false), 3000);
@@ -173,7 +181,10 @@ export default function AdminSettingsPage() {
 
             {/* --- Στοιχεία επιχείρησης --- */}
             <div className="bg-white border border-slate/10 rounded-2xl p-6 mb-6">
-                <h2 className="text-base font-semibold text-slate mb-4">Στοιχεία επιχείρησης</h2>
+                <h2 className="text-base font-semibold text-slate mb-1">Στοιχεία επιχείρησης</h2>
+                <p className="text-slate/40 text-xs mb-4">
+                    Το όνομα εμφανίζεται στο μενού και στην αρχική σελίδα· διεύθυνση και τηλέφωνο στο κάτω μέρος κάθε σελίδας για τους πελάτες.
+                </p>
                 <div className="space-y-4">
                     <div>
                         <label className="block text-slate/60 text-xs mb-1.5">Όνομα επιχείρησης</label>

@@ -237,15 +237,20 @@ export default function AddAppointmentModal({
                                         </button>
                                     </div>
                                 ) : (
-                                    <div className="relative">
-                                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate/40" />
-                                        <input
-                                            type="text"
-                                            value={query}
-                                            onChange={(e) => setQuery(e.target.value)}
-                                            placeholder="Όνομα ή τηλέφωνο (min 3 χαρακτήρες)..."
-                                            className="w-full border border-slate/15 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-blue"
-                                        />
+                                    <div>
+                                        {/* Το `relative` τυλίγει ΜΟΝΟ icon + input. Αν τύλιγε και τη λίστα
+                                            αποτελεσμάτων, το top-1/2 θα υπολογιζόταν στο ύψος ΟΛΟΥ του block
+                                            → ο φακός «κατέβαινε» στη μέση της λίστας. */}
+                                        <div className="relative">
+                                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate/40 pointer-events-none" />
+                                            <input
+                                                type="text"
+                                                value={query}
+                                                onChange={(e) => setQuery(e.target.value)}
+                                                placeholder="Όνομα ή τηλέφωνο (min 3 χαρακτήρες)..."
+                                                className="w-full border border-slate/15 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-blue"
+                                            />
+                                        </div>
                                         {searching && (
                                             <div className="text-xs text-slate/50 mt-1 px-1">Αναζήτηση...</div>
                                         )}

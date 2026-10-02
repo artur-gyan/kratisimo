@@ -173,11 +173,14 @@ export default function AdminCatalogPage() {
                                     <p className="px-5 py-4 text-slate/40 text-sm">Καμία υπηρεσία σε αυτή την κατηγορία.</p>
                                 ) : (
                                     <div className="divide-y divide-slate/5">
+                                        {/* Γραμμή = <div> (όχι <button>): μέσα έχει κουμπιά → button-in-button
+                                            = άκυρο HTML (D129). Κλικ στη γραμμή = επεξεργασία· τα κουμπιά
+                                            κάνουν stopPropagation για να μην ανοίγει ΚΑΙ το modal επεξεργασίας. */}
                                         {catServices.map((svc) => (
-                                            <button
+                                            <div
                                                 key={svc.id}
                                                 onClick={() => setServiceModal({ mode: 'edit', service: svc })}
-                                                className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-page transition-colors group"
+                                                className="flex items-center justify-between px-5 py-3.5 hover:bg-page transition-colors group cursor-pointer"
                                             >
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-2">
@@ -193,8 +196,31 @@ export default function AdminCatalogPage() {
                                                 <div className="flex items-center gap-4 flex-shrink-0 ml-4">
                                                     <span className="text-slate/50 text-sm">{formatDuration(svc.durationMinutes)}</span>
                                                     <span className="text-slate text-sm font-semibold w-16 text-right">{formatMoney(svc.price)}</span>
+                                                    {/* Ίδια κουμπιά/στυλ με την κεφαλίδα κατηγορίας */}
+                                                    <div className="flex items-center gap-1">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setServiceModal({ mode: 'edit', service: svc });
+                                                            }}
+                                                            className="p-1.5 rounded-lg text-slate/50 hover:bg-white hover:text-blue transition-colors"
+                                                            title="Επεξεργασία υπηρεσίας"
+                                                        >
+                                                            <Pencil size={16} />
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setDeleteTarget({ type: 'service', entity: svc });
+                                                            }}
+                                                            className="p-1.5 rounded-lg text-slate/50 hover:bg-white hover:text-danger transition-colors"
+                                                            title="Διαγραφή υπηρεσίας"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                            </button>
+                                            </div>
                                         ))}
                                     </div>
                                 )}

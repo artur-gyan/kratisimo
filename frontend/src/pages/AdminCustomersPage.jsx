@@ -4,9 +4,26 @@ import { adminCustomerService } from '../services/adminCustomerService';
 import CustomerEditModal from '../components/CustomerEditModal';
 import CustomerHistoryModal from '../components/CustomerHistoryModal';
 
+// Φίλτρο κατάστασης. Client-side: η πλήρης λίστα έρχεται ήδη με ένα request (με το `active`
+// κάθε πελάτη) → το φίλτρο δεν χρειάζεται νέο request σε κάθε κλικ και οι μετρητές βγαίνουν δωρεάν.
+// (Με χιλιάδες πελάτες θα πηγαίναμε σε server-side pagination ΚΑΙ φίλτρο μαζί.)
+const STATUS_FILTERS = [
+    { value: 'ALL', label: 'Όλοι' },
+    { value: 'ACTIVE', label: 'Ενεργοί' },
+    { value: 'INACTIVE', label: 'Ανενεργοί' },
+];
+
+const EMPTY_MESSAGES = {
+    ALL: 'Δεν βρέθηκαν πελάτες.',
+    ACTIVE: 'Δεν υπάρχουν ενεργοί πελάτες εδώ.',
+    INACTIVE: 'Δεν υπάρχουν ανενεργοί πελάτες εδώ.',
+};
+
 export default function AdminCustomersPage() {
     const [customers, setCustomers] = useState([]);
     const [query, setQuery] = useState('');
+    // Προεπιλογή: ενεργοί = η καθημερινή δουλειά. Οι ανενεργοί είναι η εξαίρεση, ένα κλικ μακριά.
+    const [statusFilter, setStatusFilter] = useState('ACTIVE');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
@@ -73,6 +90,18 @@ export default function AdminCustomersPage() {
     // (έρχονται μέσα σε κάθε loyalty) → τους παίρνουμε από τον πρώτο.
     const program = customers.find((c) => c.loyalty)?.loyalty;
 
+    // Μετρητές + ορατή λίστα (derived — υπολογίζονται στο render, όχι ξεχωριστό state).
+    // Ισχύουν και πάνω στα αποτελέσματα αναζήτησης.
+    const activeCount = customers.filter((c) => c.active).length;
+    const counts = {
+        ALL: customers.length,
+        ACTIVE: activeCount,
+        INACTIVE: customers.length - activeCount,
+    };
+    const visible = customers.filter((c) =>
+        statusFilter === 'ALL' ? true : statusFilter === 'ACTIVE' ? c.active : !c.active
+    );
+
     return (
         <div className="max-w-4xl mx-auto px-4 py-8">
             <h1 className="text-2xl font-semibold text-slate mb-1">Πελάτες</h1>
@@ -97,19 +126,50 @@ export default function AdminCustomersPage() {
                 />
             </div>
 
+            {/* Φίλτρο κατάστασης (ίδιο στυλ με το φίλτρο της σελίδας Υπηρεσιών) */}
+            <div className="flex flex-wrap gap-2 mb-5">
+                {STATUS_FILTERS.map((f) => {
+                    const selected = statusFilter === f.value;
+                    return (
+                        <button
+                            key={f.value}
+                            onClick={() => setStatusFilter(f.value)}
+                            className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                                selected
+                                    ? 'bg-blue text-white border-blue'
+                                    : 'bg-white text-slate/70 border-slate/15 hover:border-slate/30'
+                            }`}
+                        >
+                            {f.label}
+                            <span
+                                className={`text-xs rounded-full px-1.5 min-w-[1.25rem] text-center ${
+                                    selected
+                                        ? 'bg-white/20'
+                                        : f.value === 'INACTIVE' && counts.INACTIVE > 0
+                                            ? 'bg-danger/10 text-danger'
+                                            : 'bg-page text-slate/50'
+                                }`}
+                            >
+                                {counts[f.value]}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+
             {error && (
                 <div className="bg-danger-tint text-danger rounded-xl px-4 py-3 mb-4">{error}</div>
             )}
 
             {loading && <p className="text-slate/60 text-center py-8">Φόρτωση...</p>}
 
-            {!loading && customers.length === 0 && (
-                <p className="text-slate/60 text-center py-8">Δεν βρέθηκαν πελάτες.</p>
+            {!loading && visible.length === 0 && (
+                <p className="text-slate/60 text-center py-8">{EMPTY_MESSAGES[statusFilter]}</p>
             )}
 
-            {!loading && customers.length > 0 && (
+            {!loading && visible.length > 0 && (
                 <div className="space-y-2">
-                    {customers.map((c) => (
+                    {visible.map((c) => (
                         <div
                             key={c.id}
                             className={`bg-white border rounded-xl p-4 flex items-center justify-between gap-3 ${
